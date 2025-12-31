@@ -26,6 +26,7 @@ bool printerConnected = false;
 bool wifiConnected = false;
 bool mqttConnected = false;
 int printerBattery = -1;  // -1 = unbekannt
+unsigned long printerLastSeen = 0;  // millis() wenn zuletzt verbunden
 
 // Bluetooth-Geräte
 struct BTDevice {
@@ -199,6 +200,7 @@ void autoConnectPrinter() {
         if (SerialBT.connect(addr)) {
             Serial.println("Drucker verbunden!");
             printerConnected = true;
+            printerLastSeen = millis();
             foundDevices[0].name = name;
             memcpy(foundDevices[0].address, addr, 6);
             deviceCount = 1;
@@ -299,10 +301,15 @@ void drawTextCentered(uint8_t* bitmap, const char* text, int y) {
 // Druck-Funktionen
 // ============================================================
 
-void printLabel(const char* link, const char* name, const char* id) {
+// Gibt nullptr bei Erfolg zurück, sonst Fehlermeldung
+const char* printLabel(const char* link, const char* name, const char* id) {
     if (!printerConnected) {
         Serial.println("Drucker nicht verbunden!");
-        return;
+        return "printer not connected";
+    }
+
+    if (!link || strlen(link) == 0) {
+        return "missing link";
     }
 
     Serial.printf("Drucke Label: %s / %s\n", name, id);
@@ -322,7 +329,7 @@ void printLabel(const char* link, const char* name, const char* id) {
 
     if (bestVersion == 0) {
         Serial.println("QR-Code Fehler!");
-        return;
+        return "QR code generation failed";
     }
 
     uint8_t qrcodeData[qrcode_getBufferSize(bestVersion)];
@@ -348,7 +355,7 @@ void printLabel(const char* link, const char* name, const char* id) {
     uint8_t* bitmap = (uint8_t*)malloc(BITMAP_SIZE);
     if (!bitmap) {
         Serial.println("Speicherfehler!");
-        return;
+        return "out of memory";
     }
     memset(bitmap, 0xFF, BITMAP_SIZE);
 
@@ -376,6 +383,7 @@ void printLabel(const char* link, const char* name, const char* id) {
     sendLabelBitmap(bitmap);
     free(bitmap);
     Serial.println("Label gesendet!");
+    return nullptr;  // Erfolg
 }
 
 void printFrame() {
@@ -405,24 +413,43 @@ void printFrame() {
 // MQTT-Funktionen
 // ============================================================
 
+void sendResult(const char* printId, bool success, const char* error = nullptr) {
+    if (!mqttConnected) return;
+
+    JsonDocument doc;
+    if (printId && strlen(printId) > 0) {
+        doc["printId"] = printId;
+    }
+    doc["success"] = success;
+    if (!success && error) {
+        doc["error"] = error;
+    }
+
+    char buffer[256];
+    serializeJson(doc, buffer);
+    mqttClient.publish(mqttTopicResult, buffer);
+    Serial.printf("Result gesendet: %s\n", buffer);
+}
+
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
     Serial.printf("MQTT Nachricht auf %s\n", topic);
 
     JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, payload, length);
+    DeserializationError err = deserializeJson(doc, payload, length);
 
-    if (error) {
-        Serial.printf("JSON Fehler: %s\n", error.c_str());
+    if (err) {
+        Serial.printf("JSON Fehler: %s\n", err.c_str());
+        sendResult(nullptr, false, "invalid JSON");
         return;
     }
 
+    const char* printId = doc["printId"] | "";
     const char* link = doc["link"] | "";
     const char* name = doc["name"] | "";
     const char* id = doc["id"] | "";
 
-    if (strlen(link) > 0) {
-        printLabel(link, name, id);
-    }
+    const char* error = printLabel(link, name, id);
+    sendResult(printId, error == nullptr, error);
 }
 
 void connectMQTT() {
@@ -469,16 +496,24 @@ void publishStatus() {
 
     queryBattery();
 
+    // Update last seen wenn verbunden
+    if (printerConnected) {
+        printerLastSeen = millis();
+    }
+
     JsonDocument doc;
     doc["printer"] = printerConnected ? "connected" : "disconnected";
     if (printerBattery >= 0) {
         doc["battery"] = printerBattery;
     }
+    if (printerLastSeen > 0) {
+        doc["lastSeen"] = (millis() - printerLastSeen) / 1000;  // Sekunden seit letzter Verbindung
+    }
     doc["wifi"] = WiFi.RSSI();
     doc["heap"] = ESP.getFreeHeap();
     doc["uptime"] = millis() / 1000;
 
-    char buffer[192];
+    char buffer[256];
     serializeJson(doc, buffer);
     mqttClient.publish(mqttTopicStatus, buffer);
     Serial.printf("Status gesendet: %s\n", buffer);

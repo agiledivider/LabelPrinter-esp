@@ -18,6 +18,7 @@ const char* mqttUser = "your_username";
 const char* mqttPassword = "your_password";
 const char* mqttTopicPrint = "labelprinter/print";
 const char* mqttTopicStatus = "labelprinter/status";
+const char* mqttTopicResult = "labelprinter/result";
 const char* mqttClientId = "ESP32_LabelPrinter";
 
 #endif
