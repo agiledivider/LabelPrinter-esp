@@ -2,162 +2,77 @@
 #include "BluetoothSerial.h"
 #include "qrcode.h"
 
-// Bluetooth Serial Objekt
 BluetoothSerial SerialBT;
 
-// Nelko P21 Drucker Konfiguration
-const char* PRINTER_NAME = "P21";
-const int LABEL_WIDTH = 96;    // Pixel
-const int LABEL_HEIGHT = 284;  // Pixel
-const int BYTES_PER_ROW = LABEL_WIDTH / 8;  // 12 Bytes pro Zeile
+// Nelko P21 Label-Konfiguration
+const int LABEL_WIDTH = 96;
+const int LABEL_HEIGHT = 284;
+const int BYTES_PER_ROW = LABEL_WIDTH / 8;
+const int BITMAP_SIZE = LABEL_HEIGHT * BYTES_PER_ROW;
 
-// Status
 bool printerConnected = false;
-bool scanning = false;
 
-// Gefundene Geräte speichern
+// Bluetooth-Geräte
 struct BTDevice {
     String name;
     uint8_t address[6];
-    bool valid;
 };
 BTDevice foundDevices[20];
 int deviceCount = 0;
 
-// Gefundenes Gerät verarbeiten
-void processFoundDevice(const char* name, esp_bd_addr_t address) {
-    Serial.printf("Gefunden: %s", name);
-    Serial.printf(" [%02X:%02X:%02X:%02X:%02X:%02X]",
-                  address[0], address[1], address[2], address[3], address[4], address[5]);
-    Serial.println();
+// ============================================================
+// Bluetooth-Funktionen
+// ============================================================
 
-    // Gerät speichern
-    if (deviceCount < 20) {
-        foundDevices[deviceCount].name = name;
-        memcpy(foundDevices[deviceCount].address, address, 6);
-        foundDevices[deviceCount].valid = true;
-        deviceCount++;
-    }
-
-    // Prüfen ob es ein Nelko Drucker ist
-    String deviceName = name;
-    if (deviceName.indexOf("P21") >= 0 || deviceName.indexOf("Nelko") >= 0) {
-        Serial.println(">>> Nelko P21 Drucker gefunden! <<<");
-    }
-}
-
-// Bluetooth-Scan starten
 void startScan() {
     Serial.println("\n=== Starte Bluetooth-Scan (10 Sek.) ===");
     deviceCount = 0;
-    scanning = true;
 
-    BTScanResults* scanResults = SerialBT.discover(10000);  // 10 Sekunden scannen
-
-    if (scanResults) {
-        int count = scanResults->getCount();
-        Serial.printf("\nScan abgeschlossen. %d Geräte gefunden.\n", count);
-
-        for (int i = 0; i < count; i++) {
-            BTAdvertisedDevice* device = scanResults->getDevice(i);
-            if (device) {
-                String name = device->getName().c_str();
-                if (name.length() == 0) {
-                    name = "(kein Name)";
-                }
-
-                // Adresse holen
-                uint8_t addr[6];
-                memcpy(addr, device->getAddress().getNative(), 6);
-                processFoundDevice(name.c_str(), addr);
-            }
-        }
-    } else {
+    BTScanResults* scanResults = SerialBT.discover(10000);
+    if (!scanResults) {
         Serial.println("Scan fehlgeschlagen!");
-    }
-    scanning = false;
-}
-
-// Mit Drucker verbinden (nach Name)
-bool connectToPrinter(const char* name) {
-    Serial.printf("Verbinde mit '%s'...\n", name);
-
-    if (SerialBT.connect(name)) {
-        Serial.println("Verbindung erfolgreich!");
-        printerConnected = true;
-        return true;
-    } else {
-        Serial.println("Verbindung fehlgeschlagen!");
-        printerConnected = false;
-        return false;
-    }
-}
-
-// Mit Drucker verbinden (nach MAC-Adresse)
-bool connectToPrinterByAddress(uint8_t* address) {
-    Serial.printf("Verbinde mit MAC %02X:%02X:%02X:%02X:%02X:%02X...\n",
-                  address[0], address[1], address[2], address[3], address[4], address[5]);
-
-    if (SerialBT.connect(address)) {
-        Serial.println("Verbindung erfolgreich!");
-        printerConnected = true;
-        return true;
-    } else {
-        Serial.println("Verbindung fehlgeschlagen!");
-        printerConnected = false;
-        return false;
-    }
-}
-
-// Verbindung trennen
-void disconnect() {
-    if (printerConnected) {
-        SerialBT.disconnect();
-        printerConnected = false;
-        Serial.println("Verbindung getrennt.");
-    }
-}
-
-// Daten an Drucker senden
-bool sendData(const uint8_t* data, size_t length) {
-    if (!printerConnected) {
-        Serial.println("Fehler: Nicht mit Drucker verbunden!");
-        return false;
+        return;
     }
 
-    size_t written = SerialBT.write(data, length);
-    return (written == length);
-}
+    int count = scanResults->getCount();
+    Serial.printf("\nScan abgeschlossen. %d Geräte gefunden.\n", count);
 
-// Text-Befehl an Drucker senden
-bool sendCommand(const char* command) {
-    if (!printerConnected) {
-        Serial.println("Fehler: Nicht mit Drucker verbunden!");
-        return false;
-    }
+    for (int i = 0; i < count && deviceCount < 20; i++) {
+        BTAdvertisedDevice* device = scanResults->getDevice(i);
+        if (!device) continue;
 
-    SerialBT.println(command);
-    Serial.printf("Gesendet: %s\n", command);
-    return true;
-}
+        String name = device->getName().c_str();
+        if (name.length() == 0) name = "(kein Name)";
 
-// Antwort vom Drucker lesen
-String readResponse(unsigned long timeout = 1000) {
-    String response = "";
-    unsigned long startTime = millis();
+        foundDevices[deviceCount].name = name;
+        memcpy(foundDevices[deviceCount].address, device->getAddress().getNative(), 6);
+        deviceCount++;
 
-    while (millis() - startTime < timeout) {
-        if (SerialBT.available()) {
-            char c = SerialBT.read();
-            response += c;
+        Serial.printf("Gefunden: %s [%02X:%02X:%02X:%02X:%02X:%02X]",
+            name.c_str(),
+            foundDevices[deviceCount-1].address[0], foundDevices[deviceCount-1].address[1],
+            foundDevices[deviceCount-1].address[2], foundDevices[deviceCount-1].address[3],
+            foundDevices[deviceCount-1].address[4], foundDevices[deviceCount-1].address[5]);
+
+        if (name.indexOf("P21") >= 0 || name.indexOf("Nelko") >= 0) {
+            Serial.print(" <<< Drucker");
         }
-        delay(10);
+        Serial.println();
     }
-
-    return response;
 }
 
-// Mit Gerät aus Liste verbinden (per Index)
+void listDevices() {
+    Serial.printf("\n=== Gefundene Geräte (%d) ===\n", deviceCount);
+    for (int i = 0; i < deviceCount; i++) {
+        Serial.printf("%d: %s [%02X:%02X:%02X:%02X:%02X:%02X]\n",
+            i + 1, foundDevices[i].name.c_str(),
+            foundDevices[i].address[0], foundDevices[i].address[1],
+            foundDevices[i].address[2], foundDevices[i].address[3],
+            foundDevices[i].address[4], foundDevices[i].address[5]);
+    }
+    Serial.println("=============================\n");
+}
+
 bool connectToDevice(int index) {
     if (index < 1 || index > deviceCount) {
         Serial.printf("Ungültiger Index. Wähle 1-%d\n", deviceCount);
@@ -165,419 +80,21 @@ bool connectToDevice(int index) {
     }
 
     BTDevice& dev = foundDevices[index - 1];
-    Serial.printf("Verbinde mit '%s' [%02X:%02X:%02X:%02X:%02X:%02X]...\n",
-                  dev.name.c_str(),
-                  dev.address[0], dev.address[1], dev.address[2],
-                  dev.address[3], dev.address[4], dev.address[5]);
+    Serial.printf("Verbinde mit '%s'...\n", dev.name.c_str());
 
-    // Verbindung per MAC-Adresse (zuverlässiger)
     if (SerialBT.connect(dev.address)) {
-        Serial.println("Verbindung erfolgreich!");
+        Serial.println("Verbunden!");
         printerConnected = true;
         return true;
-    } else {
-        Serial.println("Verbindung fehlgeschlagen!");
-        printerConnected = false;
-        return false;
     }
+    Serial.println("Verbindung fehlgeschlagen!");
+    return false;
 }
 
-// ============================================================
-// TSPL2 Drucker-Befehle
-// ============================================================
-
-// TSPL2-Befehl senden (mit CRLF)
-void sendTSPL(const char* cmd) {
-    SerialBT.print(cmd);
-    SerialBT.print("\r\n");
-    Serial.printf("TSPL> %s\n", cmd);
-    delay(50);
-}
-
-// Drucker initialisieren
-void initPrinter() {
-    Serial.println("Initialisiere Drucker...");
-    sendTSPL("SIZE 14.0 mm,40.0 mm");
-    sendTSPL("GAP 3.0 mm,0 mm");
-    sendTSPL("DIRECTION 0,0");
-    sendTSPL("DENSITY 8");
-    sendTSPL("CLS");
-    Serial.println("Drucker bereit.");
-}
-
-// Batteriestatus abfragen
-void queryBattery() {
-    sendTSPL("BATTERY?");
-    delay(200);
-    String resp = readResponse(500);
-    if (resp.length() > 0) {
-        Serial.printf("Batterie-Antwort: ");
-        for (int i = 0; i < resp.length(); i++) {
-            Serial.printf("%02X ", (uint8_t)resp[i]);
-        }
-        Serial.println();
-    }
-}
-
-// Config abfragen
-void queryConfig() {
-    sendTSPL("CONFIG?");
-    delay(200);
-    String resp = readResponse(500);
-    if (resp.length() > 0) {
-        Serial.printf("Config-Antwort: ");
-        for (int i = 0; i < resp.length(); i++) {
-            Serial.printf("%02X ", (uint8_t)resp[i]);
-        }
-        Serial.println();
-    }
-}
-
-// Selftest ausführen
-void selfTest() {
-    Serial.println("Starte Selftest...");
-    sendTSPL("SELFTEST");
-}
-
-// Bitmap drucken (96x284 Pixel, 1-Bit)
-// TSPL2 BITMAP Format: BITMAP X,Y,width(bytes),height,mode,data
-void printBitmap(const uint8_t* data, int width, int height) {
-    if (!printerConnected) {
-        Serial.println("Nicht verbunden!");
-        return;
-    }
-
-    int widthBytes = width / 8;
-    int totalBytes = widthBytes * height;
-
-    Serial.printf("Drucke Bitmap %dx%d (%d Bytes)...\n", width, height, totalBytes);
-
-    // BITMAP Befehl senden (ohne CRLF am Ende - Daten folgen direkt)
-    char bitmapCmd[64];
-    snprintf(bitmapCmd, sizeof(bitmapCmd), "BITMAP 0,0,%d,%d,0,", widthBytes, height);
-    SerialBT.print(bitmapCmd);
-    Serial.printf("TSPL> %s[%d bytes]\n", bitmapCmd, totalBytes);
-
-    // Bitmap-Daten in kleinen Chunks senden (verhindert Buffer-Überlauf)
-    const int chunkSize = 64;
-    for (int i = 0; i < totalBytes; i += chunkSize) {
-        int len = min(chunkSize, totalBytes - i);
-        SerialBT.write(data + i, len);
-        delay(5);  // Kurze Pause zwischen Chunks
-    }
-
-    SerialBT.print("\r\n");
-    delay(200);
-
-    // Drucken
-    sendTSPL("PRINT 1");
-    Serial.println("Druck gesendet.");
-}
-
-// Test-Muster drucken - basierend auf Wireshark-Capture
-void printTestPattern() {
-    if (!printerConnected) {
-        Serial.println("Nicht verbunden!");
-        return;
-    }
-
-    Serial.println("Drucke basierend auf Capture-Analyse...");
-
-    // Bitmap-Daten vorbereiten: 12 bytes * 284 rows = 3408 bytes
-    const int rows = 284;
-    const int cols = 12;
-    const int bitmapSize = rows * cols;
-
-    uint8_t* bitmap = (uint8_t*)malloc(bitmapSize);
-    if (!bitmap) {
-        Serial.println("Speicherfehler!");
-        return;
-    }
-
-    // Streifen-Muster erzeugen
-    for (int row = 0; row < rows; row++) {
-        uint8_t val = ((row / 40) % 2 == 0) ? 0xFF : 0x00;
-        for (int col = 0; col < cols; col++) {
-            bitmap[row * cols + col] = val;
-        }
-    }
-
-    // Header als String
-    String header = "";
-    header += "SIZE 14.0 mm,40.0 mm\r\n";
-    header += "GAP 5.0 mm,0 mm\r\n";
-    header += "DIRECTION 0,0\r\n";
-    header += "DENSITY 15\r\n";
-    header += "CLS\r\n";
-    header += "BITMAP 0,0,12,284,1,";
-
-    // Alles senden
-    Serial.println("Sende Header...");
-    SerialBT.print(header);
-
-    Serial.printf("Sende %d Bytes Bitmap...\n", bitmapSize);
-    SerialBT.write(bitmap, bitmapSize);
-
-    Serial.println("Sende PRINT...");
-    SerialBT.print("\r\nPRINT 1\r\n");
-
-    free(bitmap);
-    Serial.println("Druck gesendet!");
-}
-
-// Streifen-Muster als Bitmap drucken
-void printStripes() {
-    if (!printerConnected) {
-        Serial.println("Nicht verbunden!");
-        return;
-    }
-
-    Serial.println("Erstelle Streifen-Muster...");
-
-    // Kleines Test-Bild: 96x100 Pixel
-    const int testHeight = 100;
-    uint8_t* bitmap = (uint8_t*)malloc(BYTES_PER_ROW * testHeight);
-
-    if (!bitmap) {
-        Serial.println("Speicher-Fehler!");
-        return;
-    }
-
-    // Horizontale Streifen erzeugen
-    for (int y = 0; y < testHeight; y++) {
-        uint8_t val = (y / 10) % 2 == 0 ? 0xFF : 0x00;
-        for (int x = 0; x < BYTES_PER_ROW; x++) {
-            bitmap[y * BYTES_PER_ROW + x] = val;
-        }
-    }
-
-    initPrinter();
-    printBitmap(bitmap, LABEL_WIDTH, testHeight);
-
-    free(bitmap);
-}
-
-// QR-Code drucken
-void printQRCode(const char* text) {
-    if (!printerConnected) {
-        Serial.println("Nicht verbunden!");
-        return;
-    }
-
-    Serial.printf("Generiere QR-Code für: %s\n", text);
-
-    // Finde optimale Version und Skalierung
-    // Skalierung muss exakt 1x, 2x oder 3x sein (pixel-perfekt)
-    // Wir wollen die größtmögliche Darstellung
-    QRCode qrcode;
-    int bestVersion = 0;
-    int bestScale = 0;
-    int bestSize = 0;
-
-    // Versuche Versionen von 3 bis 12
-    for (int version = 3; version <= 12; version++) {
-        uint8_t tempData[qrcode_getBufferSize(version)];
-
-        if (qrcode_initText(&qrcode, tempData, version, ECC_MEDIUM, text) == 0) {
-            int qrSize = qrcode.size;
-
-            // Prüfe jede Skalierung (3x, 2x, 1x)
-            for (int scale = 3; scale >= 1; scale--) {
-                int totalSize = qrSize * scale;
-                if (totalSize <= LABEL_WIDTH && totalSize > bestSize) {
-                    bestVersion = version;
-                    bestScale = scale;
-                    bestSize = totalSize;
-                }
-            }
-        }
-    }
-
-    if (bestVersion == 0) {
-        Serial.println("QR-Code kann nicht generiert werden!");
-        return;
-    }
-
-    // Generiere finalen QR-Code mit optimaler Version
-    uint8_t qrcodeData[qrcode_getBufferSize(bestVersion)];
-    qrcode_initText(&qrcode, qrcodeData, bestVersion, ECC_MEDIUM, text);
-
-    int qrSize = qrcode.size;
-    int scale = bestScale;
-    int scaledSize = qrSize * scale;
-
-    Serial.printf("QR Version %d: %dx%d Module, Skalierung: %dx = %d Pixel\n",
-                  bestVersion, qrSize, qrSize, scale, scaledSize);
-
-    int offsetX = (LABEL_WIDTH - scaledSize) / 2;   // Horizontal zentrieren
-    int offsetY = (LABEL_HEIGHT - scaledSize) / 2;  // Vertikal zentrieren
-
-    Serial.printf("Offset: %d,%d (zentriert)\n", offsetX, offsetY);
-
-    // Bitmap erstellen: 12 bytes * 284 rows = 3408 bytes
-    const int rows = LABEL_HEIGHT;
-    const int cols = BYTES_PER_ROW;
-    const int bitmapSize = rows * cols;
-
-    uint8_t* bitmap = (uint8_t*)malloc(bitmapSize);
-    if (!bitmap) {
-        Serial.println("Speicherfehler!");
-        return;
-    }
-
-    // Alles weiß (0xFF = kein Druck)
-    memset(bitmap, 0xFF, bitmapSize);
-
-    // QR-Code in Bitmap übertragen
-    for (int qy = 0; qy < qrSize; qy++) {
-        for (int qx = 0; qx < qrSize; qx++) {
-            bool isBlack = qrcode_getModule(&qrcode, qx, qy);
-
-            if (isBlack) {
-                // Skalierte Pixel setzen
-                for (int sy = 0; sy < scale; sy++) {
-                    for (int sx = 0; sx < scale; sx++) {
-                        int px = offsetX + qx * scale + sx;
-                        int py = offsetY + qy * scale + sy;
-
-                        if (px >= 0 && px < LABEL_WIDTH && py >= 0 && py < LABEL_HEIGHT) {
-                            // Pixel setzen (0x00 = schwarz/drucken)
-                            int byteIdx = py * cols + (px / 8);
-                            int bitIdx = 7 - (px % 8);  // MSB first
-                            bitmap[byteIdx] &= ~(1 << bitIdx);  // Bit löschen = schwarz
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Header als String
-    String header = "";
-    header += "SIZE 14.0 mm,40.0 mm\r\n";
-    header += "GAP 5.0 mm,0 mm\r\n";
-    header += "DIRECTION 0,0\r\n";
-    header += "DENSITY 15\r\n";
-    header += "CLS\r\n";
-    header += "BITMAP 0,0,12,284,1,";
-
-    // Alles senden
-    Serial.println("Sende QR-Code...");
-    SerialBT.print(header);
-    SerialBT.write(bitmap, bitmapSize);
-    SerialBT.print("\r\nPRINT 1\r\n");
-
-    free(bitmap);
-    Serial.println("QR-Code gesendet!");
-}
-
-// Standard-QR-Code drucken (Makerspace Bonn)
-void printDefaultQR() {
-    printQRCode("https://zeug.makerspacebonn.de/i/1259");
-}
-
-// Rahmen um das Label drucken
-void printFrame() {
-    if (!printerConnected) {
-        Serial.println("Nicht verbunden!");
-        return;
-    }
-
-    Serial.println("Drucke Rahmen...");
-
-    const int rows = LABEL_HEIGHT;
-    const int cols = BYTES_PER_ROW;
-    const int bitmapSize = rows * cols;
-
-    uint8_t* bitmap = (uint8_t*)malloc(bitmapSize);
-    if (!bitmap) {
-        Serial.println("Speicherfehler!");
-        return;
-    }
-
-    // Alles weiß (0xFF = kein Druck)
-    memset(bitmap, 0xFF, bitmapSize);
-
-    // Obere Kante (Zeile 0)
-    for (int x = 0; x < cols; x++) {
-        bitmap[x] = 0x00;
-    }
-
-    // Untere Kante (Zeile 283)
-    for (int x = 0; x < cols; x++) {
-        bitmap[(rows - 1) * cols + x] = 0x00;
-    }
-
-    // Linke und rechte Kante
-    for (int y = 0; y < rows; y++) {
-        // Linkes Pixel (Bit 7 im ersten Byte)
-        bitmap[y * cols] &= 0x7F;
-        // Rechtes Pixel (Bit 0 im letzten Byte)
-        bitmap[y * cols + cols - 1] &= 0xFE;
-    }
-
-    // Header als String
-    String header = "";
-    header += "SIZE 14.0 mm,40.0 mm\r\n";
-    header += "GAP 5.0 mm,0 mm\r\n";
-    header += "DIRECTION 0,0\r\n";
-    header += "DENSITY 15\r\n";
-    header += "CLS\r\n";
-    header += "BITMAP 0,0,12,284,1,";
-
-    // Alles senden
-    SerialBT.print(header);
-    SerialBT.write(bitmap, bitmapSize);
-    SerialBT.print("\r\nPRINT 1\r\n");
-
-    free(bitmap);
-    Serial.println("Rahmen gesendet!");
-}
-
-// Hilfe anzeigen
-void printHelp() {
-    Serial.println("\n=== Nelko P21 Bluetooth Controller ===");
-    Serial.println("Verbindung:");
-    Serial.println("  scan      - Bluetooth-Geräte suchen");
-    Serial.println("  list      - Gefundene Geräte auflisten");
-    Serial.println("  c <nr>    - Mit Gerät Nr. verbinden");
-    Serial.println("  disc      - Verbindung trennen");
-    Serial.println("  status    - Verbindungsstatus");
-    Serial.println("Drucker:");
-    Serial.println("  init      - Drucker initialisieren");
-    Serial.println("  battery   - Batteriestatus abfragen");
-    Serial.println("  config    - Konfiguration abfragen");
-    Serial.println("  selftest  - Selftest drucken");
-    Serial.println("  bar       - Test-Balken drucken");
-    Serial.println("  stripes   - Streifen-Muster drucken");
-    Serial.println("  qrcode    - QR-Code drucken (Makerspace)");
-    Serial.println("  frame     - Rahmen drucken");
-    Serial.println("  help      - Diese Hilfe");
-    Serial.println("======================================\n");
-}
-
-// Gefundene Geräte auflisten
-void listDevices() {
-    Serial.printf("\n=== Gefundene Geräte (%d) ===\n", deviceCount);
-    for (int i = 0; i < deviceCount; i++) {
-        if (foundDevices[i].valid) {
-            Serial.printf("%d: %s [%02X:%02X:%02X:%02X:%02X:%02X]\n",
-                          i + 1,
-                          foundDevices[i].name.c_str(),
-                          foundDevices[i].address[0], foundDevices[i].address[1],
-                          foundDevices[i].address[2], foundDevices[i].address[3],
-                          foundDevices[i].address[4], foundDevices[i].address[5]);
-        }
-    }
-    Serial.println("=============================\n");
-}
-
-// Auto-connect to printer
 void autoConnect() {
     Serial.println("\nSuche Drucker...");
 
-    BTScanResults* scanResults = SerialBT.discover(5000);  // 5 Sekunden scannen
-
+    BTScanResults* scanResults = SerialBT.discover(5000);
     if (!scanResults) {
         Serial.println("Scan fehlgeschlagen!");
         return;
@@ -588,124 +105,285 @@ void autoConnect() {
 
     for (int i = 0; i < count; i++) {
         BTAdvertisedDevice* device = scanResults->getDevice(i);
-        if (device) {
-            String name = device->getName().c_str();
+        if (!device) continue;
 
-            // Prüfen ob es ein Nelko Drucker ist
-            if (name.indexOf("P21") >= 0 || name.indexOf("Nelko") >= 0) {
-                Serial.printf("Drucker gefunden: %s\n", name.c_str());
+        String name = device->getName().c_str();
+        if (name.indexOf("P21") < 0 && name.indexOf("Nelko") < 0) continue;
 
-                // Adresse speichern
-                uint8_t addr[6];
-                memcpy(addr, device->getAddress().getNative(), 6);
+        Serial.printf("Drucker gefunden: %s\n", name.c_str());
 
-                // Verbinden
-                Serial.println("Verbinde...");
-                if (SerialBT.connect(addr)) {
-                    Serial.println("Verbunden!");
-                    printerConnected = true;
+        uint8_t addr[6];
+        memcpy(addr, device->getAddress().getNative(), 6);
 
-                    // Gerät in Liste speichern
-                    foundDevices[0].name = name;
-                    memcpy(foundDevices[0].address, addr, 6);
-                    foundDevices[0].valid = true;
-                    deviceCount = 1;
-                    return;
-                } else {
-                    Serial.println("Verbindung fehlgeschlagen!");
-                }
-            }
+        Serial.println("Verbinde...");
+        if (SerialBT.connect(addr)) {
+            Serial.println("Verbunden!");
+            printerConnected = true;
+            foundDevices[0].name = name;
+            memcpy(foundDevices[0].address, addr, 6);
+            deviceCount = 1;
+            return;
         }
+        Serial.println("Verbindung fehlgeschlagen!");
     }
 
     Serial.println("Kein Drucker gefunden. Nutze 'scan' zum manuellen Suchen.");
 }
 
+void disconnect() {
+    if (printerConnected) {
+        SerialBT.disconnect();
+        printerConnected = false;
+        Serial.println("Verbindung getrennt.");
+    }
+}
+
+// ============================================================
+// TSPL2 Drucker-Befehle
+// ============================================================
+
+void sendTSPL(const char* cmd) {
+    SerialBT.print(cmd);
+    SerialBT.print("\r\n");
+    Serial.printf("TSPL> %s\n", cmd);
+    delay(50);
+}
+
+String readResponse(unsigned long timeout = 1000) {
+    String response = "";
+    unsigned long start = millis();
+    while (millis() - start < timeout) {
+        if (SerialBT.available()) {
+            response += (char)SerialBT.read();
+        }
+        delay(10);
+    }
+    return response;
+}
+
+void queryBattery() {
+    sendTSPL("BATTERY?");
+    delay(200);
+    String resp = readResponse(500);
+    if (resp.length() > 0) {
+        Serial.print("Batterie: ");
+        for (size_t i = 0; i < resp.length(); i++) {
+            Serial.printf("%02X ", (uint8_t)resp[i]);
+        }
+        Serial.println();
+    }
+}
+
+void queryConfig() {
+    sendTSPL("CONFIG?");
+    delay(200);
+    String resp = readResponse(500);
+    if (resp.length() > 0) {
+        Serial.print("Config: ");
+        for (size_t i = 0; i < resp.length(); i++) {
+            Serial.printf("%02X ", (uint8_t)resp[i]);
+        }
+        Serial.println();
+    }
+}
+
+// ============================================================
+// Bitmap-Druckfunktionen
+// ============================================================
+
+// Sendet vollständiges Label-Bitmap (96x284) an Drucker
+void sendLabelBitmap(uint8_t* bitmap) {
+    String header = "SIZE 14.0 mm,40.0 mm\r\n"
+                    "GAP 5.0 mm,0 mm\r\n"
+                    "DIRECTION 0,0\r\n"
+                    "DENSITY 15\r\n"
+                    "CLS\r\n"
+                    "BITMAP 0,0,12,284,1,";
+
+    SerialBT.print(header);
+    SerialBT.write(bitmap, BITMAP_SIZE);
+    SerialBT.print("\r\nPRINT 1\r\n");
+}
+
+// Hilfsfunktion: Pixel im Bitmap setzen (schwarz)
+inline void setPixel(uint8_t* bitmap, int x, int y) {
+    if (x >= 0 && x < LABEL_WIDTH && y >= 0 && y < LABEL_HEIGHT) {
+        int byteIdx = y * BYTES_PER_ROW + (x / 8);
+        int bitIdx = 7 - (x % 8);
+        bitmap[byteIdx] &= ~(1 << bitIdx);
+    }
+}
+
+void printFrame() {
+    if (!printerConnected) {
+        Serial.println("Nicht verbunden!");
+        return;
+    }
+
+    Serial.println("Drucke Rahmen...");
+
+    uint8_t* bitmap = (uint8_t*)malloc(BITMAP_SIZE);
+    if (!bitmap) {
+        Serial.println("Speicherfehler!");
+        return;
+    }
+
+    memset(bitmap, 0xFF, BITMAP_SIZE);
+
+    // Obere und untere Kante
+    memset(bitmap, 0x00, BYTES_PER_ROW);
+    memset(bitmap + (LABEL_HEIGHT - 1) * BYTES_PER_ROW, 0x00, BYTES_PER_ROW);
+
+    // Linke und rechte Kante
+    for (int y = 0; y < LABEL_HEIGHT; y++) {
+        bitmap[y * BYTES_PER_ROW] &= 0x7F;
+        bitmap[y * BYTES_PER_ROW + BYTES_PER_ROW - 1] &= 0xFE;
+    }
+
+    sendLabelBitmap(bitmap);
+    free(bitmap);
+    Serial.println("Gesendet!");
+}
+
+void printQRCode(const char* text) {
+    if (!printerConnected) {
+        Serial.println("Nicht verbunden!");
+        return;
+    }
+
+    Serial.printf("Generiere QR-Code: %s\n", text);
+
+    // Finde optimale Version und Skalierung (1x, 2x oder 3x)
+    QRCode qrcode;
+    int bestVersion = 0, bestScale = 0, bestSize = 0;
+
+    for (int version = 3; version <= 12; version++) {
+        uint8_t tempData[qrcode_getBufferSize(version)];
+        if (qrcode_initText(&qrcode, tempData, version, ECC_MEDIUM, text) != 0) continue;
+
+        for (int scale = 3; scale >= 1; scale--) {
+            int size = qrcode.size * scale;
+            if (size <= LABEL_WIDTH && size > bestSize) {
+                bestVersion = version;
+                bestScale = scale;
+                bestSize = size;
+            }
+        }
+    }
+
+    if (bestVersion == 0) {
+        Serial.println("QR-Code kann nicht generiert werden!");
+        return;
+    }
+
+    uint8_t qrcodeData[qrcode_getBufferSize(bestVersion)];
+    qrcode_initText(&qrcode, qrcodeData, bestVersion, ECC_MEDIUM, text);
+
+    int qrSize = qrcode.size;
+    int offsetX = (LABEL_WIDTH - qrSize * bestScale) / 2;
+    int offsetY = (LABEL_HEIGHT - qrSize * bestScale) / 2;
+
+    Serial.printf("Version %d, %dx%d @ %dx = %d Pixel\n",
+        bestVersion, qrSize, qrSize, bestScale, qrSize * bestScale);
+
+    uint8_t* bitmap = (uint8_t*)malloc(BITMAP_SIZE);
+    if (!bitmap) {
+        Serial.println("Speicherfehler!");
+        return;
+    }
+
+    memset(bitmap, 0xFF, BITMAP_SIZE);
+
+    for (int qy = 0; qy < qrSize; qy++) {
+        for (int qx = 0; qx < qrSize; qx++) {
+            if (qrcode_getModule(&qrcode, qx, qy)) {
+                for (int sy = 0; sy < bestScale; sy++) {
+                    for (int sx = 0; sx < bestScale; sx++) {
+                        setPixel(bitmap,
+                            offsetX + qx * bestScale + sx,
+                            offsetY + qy * bestScale + sy);
+                    }
+                }
+            }
+        }
+    }
+
+    sendLabelBitmap(bitmap);
+    free(bitmap);
+    Serial.println("Gesendet!");
+}
+
+// ============================================================
+// Benutzeroberfläche
+// ============================================================
+
+void printHelp() {
+    Serial.println("\n=== Nelko P21 Controller ===");
+    Serial.println("Verbindung:");
+    Serial.println("  scan     - Bluetooth-Geräte suchen");
+    Serial.println("  list     - Gefundene Geräte anzeigen");
+    Serial.println("  c <nr>   - Mit Gerät verbinden");
+    Serial.println("  disc     - Verbindung trennen");
+    Serial.println("  status   - Verbindungsstatus");
+    Serial.println("Drucken:");
+    Serial.println("  battery  - Batteriestatus");
+    Serial.println("  config   - Konfiguration");
+    Serial.println("  frame    - Rahmen");
+    Serial.println("  qrcode   - QR-Code (Makerspace)");
+    Serial.println("  help     - Diese Hilfe");
+    Serial.println("============================\n");
+}
+
 void setup() {
-    // Serial für Debug-Ausgabe
     Serial.begin(115200);
     delay(1000);
 
-    Serial.println("\n\n========================================");
+    Serial.println("\n========================================");
     Serial.println("  Nelko P21 Label Printer - ESP32");
     Serial.println("========================================");
 
-    // Bluetooth initialisieren
-    if (!SerialBT.begin("ESP32_LabelPrinter", true)) {  // true = Master-Modus
-        Serial.println("Bluetooth-Initialisierung fehlgeschlagen!");
+    if (!SerialBT.begin("ESP32_LabelPrinter", true)) {
+        Serial.println("Bluetooth-Fehler!");
         while(1);
     }
 
-    Serial.println("Bluetooth initialisiert (Master-Modus)");
+    Serial.println("Bluetooth initialisiert");
 
-    // Callback für Verbindungstrennung
-    SerialBT.register_callback([](esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
+    SerialBT.register_callback([](esp_spp_cb_event_t event, esp_spp_cb_param_t* param) {
         if (event == ESP_SPP_CLOSE_EVT) {
             Serial.println("Verbindung getrennt!");
             printerConnected = false;
         }
     });
 
-    // Automatisch nach Drucker suchen und verbinden
     autoConnect();
-
     printHelp();
 }
 
 void loop() {
-    // Serielle Befehle verarbeiten
     if (Serial.available()) {
         String cmd = Serial.readStringUntil('\n');
         cmd.trim();
-
-        // Echo: Eingegebenen Befehl anzeigen
         Serial.printf("> %s\n", cmd.c_str());
-
         cmd.toLowerCase();
 
         if (cmd == "scan") {
             startScan();
         }
-        else if (cmd == "connect") {
-            connectToPrinter(PRINTER_NAME);
-        }
-        else if (cmd.startsWith("connect ")) {
-            String name = cmd.substring(8);
-            connectToPrinter(name.c_str());
-        }
-        else if (cmd == "disc" || cmd == "disconnect") {
-            disconnect();
-        }
-        else if (cmd == "status") {
-            Serial.printf("Verbindungsstatus: %s\n",
-                         printerConnected ? "Verbunden" : "Nicht verbunden");
-        }
-        else if (cmd == "test") {
-            if (printerConnected) {
-                sendCommand("TEST");
-                delay(100);
-                String response = readResponse();
-                if (response.length() > 0) {
-                    Serial.printf("Antwort: %s\n", response.c_str());
-                }
-            } else {
-                Serial.println("Nicht verbunden!");
-            }
-        }
         else if (cmd == "list") {
             listDevices();
         }
         else if (cmd.startsWith("c ")) {
-            int index = cmd.substring(2).toInt();
-            connectToDevice(index);
+            connectToDevice(cmd.substring(2).toInt());
+        }
+        else if (cmd == "disc") {
+            disconnect();
+        }
+        else if (cmd == "status") {
+            Serial.printf("Status: %s\n", printerConnected ? "Verbunden" : "Nicht verbunden");
         }
         else if (cmd == "help" || cmd == "?") {
             printHelp();
-        }
-        // Drucker-Befehle
-        else if (cmd == "init") {
-            if (printerConnected) initPrinter();
-            else Serial.println("Nicht verbunden!");
         }
         else if (cmd == "battery") {
             if (printerConnected) queryBattery();
@@ -715,43 +393,26 @@ void loop() {
             if (printerConnected) queryConfig();
             else Serial.println("Nicht verbunden!");
         }
-        else if (cmd == "selftest") {
-            if (printerConnected) selfTest();
-            else Serial.println("Nicht verbunden!");
-        }
-        else if (cmd == "bar") {
-            printTestPattern();
-        }
-        else if (cmd == "stripes") {
-            printStripes();
-        }
-        else if (cmd == "qrcode") {
-            printDefaultQR();
-        }
         else if (cmd == "frame") {
             printFrame();
         }
-        else if (cmd.length() > 0) {
-            // Unbekannter Befehl - direkt an Drucker senden (TSPL)
-            if (printerConnected) {
-                sendTSPL(cmd.c_str());
-                delay(100);
-                String response = readResponse();
-                if (response.length() > 0) {
-                    Serial.printf("Antwort: %s\n", response.c_str());
-                }
-            } else {
-                Serial.printf("Unbekannter Befehl: %s\n", cmd.c_str());
+        else if (cmd == "qrcode") {
+            printQRCode("https://zeug.makerspacebonn.de/i/1259");
+        }
+        else if (cmd.length() > 0 && printerConnected) {
+            sendTSPL(cmd.c_str());
+            delay(100);
+            String resp = readResponse();
+            if (resp.length() > 0) {
+                Serial.printf("Antwort: %s\n", resp.c_str());
             }
         }
     }
 
-    // Daten vom Drucker empfangen
     if (printerConnected && SerialBT.available()) {
         Serial.print("Drucker: ");
         while (SerialBT.available()) {
-            char c = SerialBT.read();
-            Serial.print(c);
+            Serial.print((char)SerialBT.read());
         }
         Serial.println();
     }
