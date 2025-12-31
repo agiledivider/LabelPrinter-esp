@@ -275,21 +275,16 @@ void printLabel(const char* link, const char* name, const char* id) {
 
     Serial.printf("Drucke Label: %s / %s\n", name, id);
 
-    // QR-Code generieren
+    // QR-Code generieren - kleinste Version die passt
     QRCode qrcode;
-    int bestVersion = 0, bestScale = 0, bestSize = 0;
+    int bestVersion = 0, bestScale = 1;
 
+    // Finde kleinste Version die den Text kodieren kann (min. Version 3 für URLs)
     for (int version = 3; version <= 12; version++) {
         uint8_t tempData[qrcode_getBufferSize(version)];
-        if (qrcode_initText(&qrcode, tempData, version, ECC_MEDIUM, link) != 0) continue;
-
-        for (int scale = 3; scale >= 1; scale--) {
-            int size = qrcode.size * scale;
-            if (size <= LABEL_WIDTH && size > bestSize) {
-                bestVersion = version;
-                bestScale = scale;
-                bestSize = size;
-            }
+        if (qrcode_initText(&qrcode, tempData, version, ECC_MEDIUM, link) == 0) {
+            bestVersion = version;
+            break;  // Erste passende Version nehmen
         }
     }
 
@@ -302,7 +297,14 @@ void printLabel(const char* link, const char* name, const char* id) {
     qrcode_initText(&qrcode, qrcodeData, bestVersion, ECC_MEDIUM, link);
 
     int qrSize = qrcode.size;
+
+    // Maximale Skalierung finden die noch passt
+    bestScale = LABEL_WIDTH / qrSize;
+    if (bestScale < 1) bestScale = 1;
+
     int qrPixels = qrSize * bestScale;
+    Serial.printf("QR: Version %d, %dx%d, Scale %dx = %d Pixel\n",
+        bestVersion, qrSize, qrSize, bestScale, qrPixels);
 
     // Layout berechnen (Portrait: QR oben, Text unten)
     int qrY = 10;  // QR-Code beginnt bei Y=10
