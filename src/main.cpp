@@ -476,6 +476,64 @@ void printDefaultQR() {
     printQRCode("https://zeug.makerspacebonn.de/i/1259");
 }
 
+// Rahmen um das Label drucken
+void printFrame() {
+    if (!printerConnected) {
+        Serial.println("Nicht verbunden!");
+        return;
+    }
+
+    Serial.println("Drucke Rahmen...");
+
+    const int rows = LABEL_HEIGHT;
+    const int cols = BYTES_PER_ROW;
+    const int bitmapSize = rows * cols;
+
+    uint8_t* bitmap = (uint8_t*)malloc(bitmapSize);
+    if (!bitmap) {
+        Serial.println("Speicherfehler!");
+        return;
+    }
+
+    // Alles weiß (0xFF = kein Druck)
+    memset(bitmap, 0xFF, bitmapSize);
+
+    // Obere Kante (Zeile 0)
+    for (int x = 0; x < cols; x++) {
+        bitmap[x] = 0x00;
+    }
+
+    // Untere Kante (Zeile 283)
+    for (int x = 0; x < cols; x++) {
+        bitmap[(rows - 1) * cols + x] = 0x00;
+    }
+
+    // Linke und rechte Kante
+    for (int y = 0; y < rows; y++) {
+        // Linkes Pixel (Bit 7 im ersten Byte)
+        bitmap[y * cols] &= 0x7F;
+        // Rechtes Pixel (Bit 0 im letzten Byte)
+        bitmap[y * cols + cols - 1] &= 0xFE;
+    }
+
+    // Header als String
+    String header = "";
+    header += "SIZE 14.0 mm,40.0 mm\r\n";
+    header += "GAP 5.0 mm,0 mm\r\n";
+    header += "DIRECTION 0,0\r\n";
+    header += "DENSITY 15\r\n";
+    header += "CLS\r\n";
+    header += "BITMAP 0,0,12,284,1,";
+
+    // Alles senden
+    SerialBT.print(header);
+    SerialBT.write(bitmap, bitmapSize);
+    SerialBT.print("\r\nPRINT 1\r\n");
+
+    free(bitmap);
+    Serial.println("Rahmen gesendet!");
+}
+
 // Hilfe anzeigen
 void printHelp() {
     Serial.println("\n=== Nelko P21 Bluetooth Controller ===");
@@ -493,6 +551,7 @@ void printHelp() {
     Serial.println("  bar       - Test-Balken drucken");
     Serial.println("  stripes   - Streifen-Muster drucken");
     Serial.println("  qrcode    - QR-Code drucken (Makerspace)");
+    Serial.println("  frame     - Rahmen drucken");
     Serial.println("  help      - Diese Hilfe");
     Serial.println("======================================\n");
 }
@@ -668,6 +727,9 @@ void loop() {
         }
         else if (cmd == "qrcode") {
             printDefaultQR();
+        }
+        else if (cmd == "frame") {
+            printFrame();
         }
         else if (cmd.length() > 0) {
             // Unbekannter Befehl - direkt an Drucker senden (TSPL)
