@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "BluetoothSerial.h"
+#include "qrcode.h"
 
 // Bluetooth Serial Objekt
 BluetoothSerial SerialBT;
@@ -356,6 +357,125 @@ void printStripes() {
     free(bitmap);
 }
 
+// QR-Code drucken
+void printQRCode(const char* text) {
+    if (!printerConnected) {
+        Serial.println("Nicht verbunden!");
+        return;
+    }
+
+    Serial.printf("Generiere QR-Code für: %s\n", text);
+
+    // Finde optimale Version und Skalierung
+    // Skalierung muss exakt 1x, 2x oder 3x sein (pixel-perfekt)
+    // Wir wollen die größtmögliche Darstellung
+    QRCode qrcode;
+    int bestVersion = 0;
+    int bestScale = 0;
+    int bestSize = 0;
+
+    // Versuche Versionen von 3 bis 12
+    for (int version = 3; version <= 12; version++) {
+        uint8_t tempData[qrcode_getBufferSize(version)];
+
+        if (qrcode_initText(&qrcode, tempData, version, ECC_MEDIUM, text) == 0) {
+            int qrSize = qrcode.size;
+
+            // Prüfe jede Skalierung (3x, 2x, 1x)
+            for (int scale = 3; scale >= 1; scale--) {
+                int totalSize = qrSize * scale;
+                if (totalSize <= LABEL_WIDTH && totalSize > bestSize) {
+                    bestVersion = version;
+                    bestScale = scale;
+                    bestSize = totalSize;
+                }
+            }
+        }
+    }
+
+    if (bestVersion == 0) {
+        Serial.println("QR-Code kann nicht generiert werden!");
+        return;
+    }
+
+    // Generiere finalen QR-Code mit optimaler Version
+    uint8_t qrcodeData[qrcode_getBufferSize(bestVersion)];
+    qrcode_initText(&qrcode, qrcodeData, bestVersion, ECC_MEDIUM, text);
+
+    int qrSize = qrcode.size;
+    int scale = bestScale;
+    int scaledSize = qrSize * scale;
+
+    Serial.printf("QR Version %d: %dx%d Module, Skalierung: %dx = %d Pixel\n",
+                  bestVersion, qrSize, qrSize, scale, scaledSize);
+
+    int offsetX = (LABEL_WIDTH - scaledSize) / 2;   // Horizontal zentrieren
+    int offsetY = (LABEL_HEIGHT - scaledSize) / 2;  // Vertikal zentrieren
+
+    Serial.printf("Offset: %d,%d (zentriert)\n", offsetX, offsetY);
+
+    // Bitmap erstellen: 12 bytes * 284 rows = 3408 bytes
+    const int rows = LABEL_HEIGHT;
+    const int cols = BYTES_PER_ROW;
+    const int bitmapSize = rows * cols;
+
+    uint8_t* bitmap = (uint8_t*)malloc(bitmapSize);
+    if (!bitmap) {
+        Serial.println("Speicherfehler!");
+        return;
+    }
+
+    // Alles weiß (0xFF = kein Druck)
+    memset(bitmap, 0xFF, bitmapSize);
+
+    // QR-Code in Bitmap übertragen
+    for (int qy = 0; qy < qrSize; qy++) {
+        for (int qx = 0; qx < qrSize; qx++) {
+            bool isBlack = qrcode_getModule(&qrcode, qx, qy);
+
+            if (isBlack) {
+                // Skalierte Pixel setzen
+                for (int sy = 0; sy < scale; sy++) {
+                    for (int sx = 0; sx < scale; sx++) {
+                        int px = offsetX + qx * scale + sx;
+                        int py = offsetY + qy * scale + sy;
+
+                        if (px >= 0 && px < LABEL_WIDTH && py >= 0 && py < LABEL_HEIGHT) {
+                            // Pixel setzen (0x00 = schwarz/drucken)
+                            int byteIdx = py * cols + (px / 8);
+                            int bitIdx = 7 - (px % 8);  // MSB first
+                            bitmap[byteIdx] &= ~(1 << bitIdx);  // Bit löschen = schwarz
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Header als String
+    String header = "";
+    header += "SIZE 14.0 mm,40.0 mm\r\n";
+    header += "GAP 5.0 mm,0 mm\r\n";
+    header += "DIRECTION 0,0\r\n";
+    header += "DENSITY 15\r\n";
+    header += "CLS\r\n";
+    header += "BITMAP 0,0,12,284,1,";
+
+    // Alles senden
+    Serial.println("Sende QR-Code...");
+    SerialBT.print(header);
+    SerialBT.write(bitmap, bitmapSize);
+    SerialBT.print("\r\nPRINT 1\r\n");
+
+    free(bitmap);
+    Serial.println("QR-Code gesendet!");
+}
+
+// Standard-QR-Code drucken (Makerspace Bonn)
+void printDefaultQR() {
+    printQRCode("https://zeug.makerspacebonn.de/i/1259");
+}
+
 // Hilfe anzeigen
 void printHelp() {
     Serial.println("\n=== Nelko P21 Bluetooth Controller ===");
@@ -372,6 +492,7 @@ void printHelp() {
     Serial.println("  selftest  - Selftest drucken");
     Serial.println("  bar       - Test-Balken drucken");
     Serial.println("  stripes   - Streifen-Muster drucken");
+    Serial.println("  qrcode    - QR-Code drucken (Makerspace)");
     Serial.println("  help      - Diese Hilfe");
     Serial.println("======================================\n");
 }
@@ -544,6 +665,9 @@ void loop() {
         }
         else if (cmd == "stripes") {
             printStripes();
+        }
+        else if (cmd == "qrcode") {
+            printDefaultQR();
         }
         else if (cmd.length() > 0) {
             // Unbekannter Befehl - direkt an Drucker senden (TSPL)
