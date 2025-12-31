@@ -22,3 +22,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local config with credentials
+src/config.h

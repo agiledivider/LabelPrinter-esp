@@ -1,0 +1,22 @@
+// Copy this file to config.h and fill in your credentials
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// WiFi networks (tried in order)
+const char* wifiNetworks[][2] = {
+    {"YourSSID1", "YourPassword1"},
+    {"YourSSID2", "YourPassword2"},
+};
+const int wifiNetworkCount = sizeof(wifiNetworks) / sizeof(wifiNetworks[0]);
+
+// MQTT configuration
+const char* mqttServer = "mqtt.example.com";
+const int mqttPort = 1883;  // 1883 = non-SSL, 8883 = SSL
+const bool mqttUseSsl = false;  // true = SSL, false = plain TCP
+const char* mqttUser = "your_username";
+const char* mqttPassword = "your_password";
+const char* mqttTopic = "labelprinter/print";
+const char* mqttClientId = "ESP32_LabelPrinter";
+
+#endif
