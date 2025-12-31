@@ -25,6 +25,7 @@ PubSubClient mqttClient;
 bool printerConnected = false;
 bool wifiConnected = false;
 bool mqttConnected = false;
+int printerBattery = -1;  // -1 = unbekannt
 
 // Bluetooth-Geräte
 struct BTDevice {
@@ -213,6 +214,37 @@ void disconnect() {
         SerialBT.disconnect();
         printerConnected = false;
         Serial.println("Drucker getrennt.");
+    }
+}
+
+void queryBattery() {
+    if (!printerConnected) {
+        printerBattery = -1;
+        return;
+    }
+
+    // Buffer leeren
+    while (SerialBT.available()) SerialBT.read();
+
+    // Batterie abfragen
+    SerialBT.print("!B\r\n");
+    delay(200);
+
+    // Antwort lesen (Format: "Bxx" wobei xx der Prozentsatz ist)
+    String response = "";
+    unsigned long start = millis();
+    while (millis() - start < 500) {
+        if (SerialBT.available()) {
+            char c = SerialBT.read();
+            if (c >= '0' && c <= '9') {
+                response += c;
+            }
+        }
+    }
+
+    if (response.length() > 0) {
+        printerBattery = response.toInt();
+        Serial.printf("Batterie: %d%%\n", printerBattery);
     }
 }
 
@@ -410,8 +442,8 @@ void connectMQTT() {
 
     if (mqttClient.connect(mqttClientId, mqttUser, mqttPassword)) {
         Serial.println("MQTT verbunden!");
-        mqttClient.subscribe(mqttTopic);
-        Serial.printf("Subscribed: %s\n", mqttTopic);
+        mqttClient.subscribe(mqttTopicPrint);
+        Serial.printf("Subscribed: %s\n", mqttTopicPrint);
         mqttConnected = true;
     } else {
         Serial.printf("MQTT Fehler: %d\n", mqttClient.state());
@@ -427,6 +459,29 @@ void checkMQTT() {
         connectMQTT();
     }
     mqttClient.loop();
+}
+
+unsigned long lastStatusTime = 0;
+const unsigned long STATUS_INTERVAL = 30000;  // 30 Sekunden
+
+void publishStatus() {
+    if (!mqttConnected) return;
+
+    queryBattery();
+
+    JsonDocument doc;
+    doc["printer"] = printerConnected ? "connected" : "disconnected";
+    if (printerBattery >= 0) {
+        doc["battery"] = printerBattery;
+    }
+    doc["wifi"] = WiFi.RSSI();
+    doc["heap"] = ESP.getFreeHeap();
+    doc["uptime"] = millis() / 1000;
+
+    char buffer[192];
+    serializeJson(doc, buffer);
+    mqttClient.publish(mqttTopicStatus, buffer);
+    Serial.printf("Status gesendet: %s\n", buffer);
 }
 
 // ============================================================
@@ -491,6 +546,12 @@ void setup() {
 void loop() {
     // MQTT verarbeiten
     checkMQTT();
+
+    // Periodisch Status senden
+    if (millis() - lastStatusTime >= STATUS_INTERVAL) {
+        lastStatusTime = millis();
+        publishStatus();
+    }
 
     // Serielle Befehle
     if (Serial.available()) {
