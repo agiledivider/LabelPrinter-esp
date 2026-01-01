@@ -228,26 +228,168 @@ void queryBattery() {
     // Buffer leeren
     while (SerialBT.available()) SerialBT.read();
 
-    // Batterie abfragen
-    SerialBT.print("!B\r\n");
+    // Batterie abfragen (korrekter Befehl: BATTERY?)
+    SerialBT.print("BATTERY?\r\n");
     delay(200);
 
-    // Antwort lesen (Format: "Bxx" wobei xx der Prozentsatz ist)
-    String response = "";
+    // Drucker sendet Echo zurück: "BATTERY?" + 2 Bytes Antwort
+    // Echo überspringen (8 Zeichen "BATTERY?")
     unsigned long start = millis();
-    while (millis() - start < 500) {
+    int echoCount = 0;
+    while (millis() - start < 500 && echoCount < 8) {
         if (SerialBT.available()) {
-            char c = SerialBT.read();
-            if (c >= '0' && c <= '9') {
-                response += c;
-            }
+            SerialBT.read();  // Echo-Byte verwerfen
+            echoCount++;
         }
     }
 
-    if (response.length() > 0) {
-        printerBattery = response.toInt();
-        Serial.printf("Batterie: %d%%\n", printerBattery);
+    // Jetzt die 2 Antwort-Bytes lesen (erstes Byte = BCD Prozent)
+    start = millis();
+    while (millis() - start < 300) {
+        if (SerialBT.available()) {
+            uint8_t raw = SerialBT.read();
+            // Zweites Byte und CRLF verwerfen
+            delay(50);
+            while (SerialBT.available()) SerialBT.read();
+
+            // BCD dekodieren: 0x99 = 99%, 0x66 = 66%
+            int level = ((raw >> 4) & 0x0F) * 10 + (raw & 0x0F);
+
+            if (level >= 0 && level <= 100) {
+                printerBattery = level;
+                Serial.printf("Batterie: %d%%\n", printerBattery);
+            } else {
+                Serial.printf("Batterie raw: 0x%02X (%d)\n", raw, level);
+            }
+            return;
+        }
     }
+    Serial.println("Batterie: keine Antwort");
+}
+
+// Config abfragen (10 Bytes: Protokoll, DPI, HW-Version, FW-Version, Timeout, Beep)
+void queryConfig() {
+    if (!printerConnected) {
+        Serial.println("Nicht verbunden!");
+        return;
+    }
+
+    // Buffer leeren
+    while (SerialBT.available()) SerialBT.read();
+
+    SerialBT.print("CONFIG?\r\n");
+    delay(200);
+
+    // Echo überspringen (7 Zeichen "CONFIG?")
+    unsigned long start = millis();
+    int echoCount = 0;
+    while (millis() - start < 500 && echoCount < 7) {
+        if (SerialBT.available()) {
+            SerialBT.read();
+            echoCount++;
+        }
+    }
+
+    // 10 Bytes Config lesen
+    uint8_t config[10];
+    start = millis();
+    int count = 0;
+    while (millis() - start < 500 && count < 10) {
+        if (SerialBT.available()) {
+            config[count++] = SerialBT.read();
+        }
+    }
+
+    // Rest verwerfen
+    while (SerialBT.available()) SerialBT.read();
+
+    if (count < 10) {
+        Serial.println("Config: (unvollstaendige Antwort)");
+        return;
+    }
+
+    // Human-readable output
+    Serial.println("=== Drucker-Konfiguration ===");
+    Serial.printf("  Protokoll:    %s\n", config[0] == 0 ? "TSPL2" : "Unbekannt");
+    Serial.printf("  DPI:          %d\n", config[1]);
+    Serial.printf("  Hardware:     v%d.%d.%d\n", config[2], config[3], config[4]);
+    Serial.printf("  Firmware:     v%d.%d.%d\n", config[5], config[6], config[7]);
+
+    const char* timeouts[] = {"Nie", "15 Min", "30 Min", "60 Min"};
+    int timeoutIdx = config[8] < 4 ? config[8] : 0;
+    Serial.printf("  Auto-Off:     %s\n", timeouts[timeoutIdx]);
+    Serial.printf("  Beep:         %s\n", config[9] ? "An" : "Aus");
+
+    // Raw hex dump
+    Serial.print("  Raw:          ");
+    for (int i = 0; i < 10; i++) {
+        Serial.printf("%02X ", config[i]);
+    }
+    Serial.println();
+    Serial.println("==============================");
+}
+
+// Debug: Sendet Befehl und zeigt Antwort
+void debugPrinterCommand(const char* cmd) {
+    if (!printerConnected) {
+        Serial.println("Nicht verbunden!");
+        return;
+    }
+
+    // Buffer leeren
+    while (SerialBT.available()) SerialBT.read();
+
+    Serial.printf("Sende: %s\n", cmd);
+    SerialBT.print(cmd);
+    SerialBT.print("\r\n");
+    delay(500);
+
+    Serial.print("Antwort: ");
+    bool gotData = false;
+    unsigned long start = millis();
+    while (millis() - start < 1000) {
+        if (SerialBT.available()) {
+            uint8_t c = SerialBT.read();
+            Serial.printf("[0x%02X '%c'] ", c, (c >= 32 && c < 127) ? c : '.');
+            gotData = true;
+        }
+    }
+    if (!gotData) {
+        Serial.print("(keine)");
+    }
+    Serial.println();
+}
+
+// Prüft Drucker-Status mit ESC!? Befehl
+// Gibt Fehlermeldung zurück oder nullptr wenn OK
+const char* checkPrinterStatus() {
+    if (!printerConnected || !SerialBT.connected()) {
+        printerConnected = false;
+        return "printer not connected";
+    }
+
+    // Buffer leeren
+    while (SerialBT.available()) SerialBT.read();
+
+    // Printer ready status abfragen (ESC!?)
+    SerialBT.print("\x1B!?\r\n");
+    delay(200);
+
+    // Antwort lesen
+    unsigned long start = millis();
+    while (millis() - start < 300) {
+        if (SerialBT.available()) {
+            uint8_t status = SerialBT.read();
+            Serial.printf("Drucker-Status: 0x%02X\n", status);
+            // Status-Byte auswerten (TODO: genaue Bedeutung herausfinden)
+            // Vorerst: jede Antwort = Drucker bereit
+            return nullptr;
+        }
+    }
+
+    // Keine Antwort - Drucker evtl. beschäftigt oder nicht bereit
+    // Trotzdem weitermachen, da manche Drucker nicht antworten
+    return nullptr;
 }
 
 // ============================================================
@@ -306,6 +448,13 @@ const char* printLabel(const char* link, const char* name, const char* id) {
     if (!printerConnected) {
         Serial.println("Drucker nicht verbunden!");
         return "printer not connected";
+    }
+
+    // Drucker-Status prüfen (Papier, etc.)
+    const char* statusError = checkPrinterStatus();
+    if (statusError) {
+        Serial.printf("Drucker-Fehler: %s\n", statusError);
+        return statusError;
     }
 
     if (!link || strlen(link) == 0) {
@@ -529,10 +678,16 @@ void printHelp() {
     Serial.printf("  WiFi: %s\n", wifiConnected ? "Verbunden" : "Getrennt");
     Serial.printf("  MQTT: %s\n", mqttConnected ? "Verbunden" : "Getrennt");
     Serial.printf("  Drucker: %s\n", printerConnected ? "Verbunden" : "Getrennt");
+    if (printerBattery >= 0) {
+        Serial.printf("  Batterie: %d%%\n", printerBattery);
+    }
     Serial.println("Befehle:");
     Serial.println("  scan    - Drucker suchen");
     Serial.println("  frame   - Rahmen drucken");
     Serial.println("  qrcode  - Test QR-Code");
+    Serial.println("  battery - Batterie abfragen");
+    Serial.println("  config  - Drucker-Config abfragen");
+    Serial.println("  ready   - Drucker-Status pruefen");
     Serial.println("  wifi    - WiFi neu verbinden");
     Serial.println("  mqtt    - MQTT neu verbinden");
     Serial.println("  help    - Diese Hilfe");
@@ -592,28 +747,50 @@ void loop() {
     if (Serial.available()) {
         String cmd = Serial.readStringUntil('\n');
         cmd.trim();
-        cmd.toLowerCase();
+        String cmdLower = cmd;
+        cmdLower.toLowerCase();
 
-        if (cmd == "scan") {
+        if (cmdLower == "scan") {
             autoConnectPrinter();
         }
-        else if (cmd == "frame") {
+        else if (cmdLower == "disconnect") {
+            disconnect();
+        }
+        else if (cmdLower == "frame") {
             printFrame();
         }
-        else if (cmd == "qrcode") {
+        else if (cmdLower == "qrcode") {
             printLabel("https://zeug.makerspacebonn.de/i/1259", "Test Item", "1259");
         }
-        else if (cmd == "wifi") {
+        else if (cmdLower == "wifi") {
             connectWiFi();
         }
-        else if (cmd == "mqtt") {
+        else if (cmdLower == "mqtt") {
             connectMQTT();
         }
-        else if (cmd == "help" || cmd == "?") {
+        else if (cmdLower == "help" || cmdLower == "?") {
             printHelp();
         }
-        else if (cmd == "status") {
+        else if (cmdLower == "status") {
             printHelp();
+        }
+        else if (cmdLower == "battery") {
+            queryBattery();
+        }
+        else if (cmdLower == "config") {
+            queryConfig();
+        }
+        else if (cmdLower == "ready") {
+            const char* err = checkPrinterStatus();
+            if (err) {
+                Serial.printf("Fehler: %s\n", err);
+            } else {
+                Serial.println("Drucker bereit");
+            }
+        }
+        else if (cmdLower.startsWith("send ")) {
+            // Sende beliebigen Befehl: "send BEFEHL" (für Debugging)
+            debugPrinterCommand(cmd.substring(5).c_str());
         }
     }
 
