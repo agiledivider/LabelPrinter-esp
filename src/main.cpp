@@ -1,4 +1,4 @@
-#include <Arduino.h>
+sca#include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
@@ -7,6 +7,7 @@
 #include "qrcode.h"
 #include "config.h"
 #include "font5x7.h"
+#include "LabelImage.h"
 
 // Label-Konfiguration
 const int LABEL_WIDTH = 96;
@@ -443,15 +444,7 @@ const char* checkPrinterStatus() {
 // Bitmap-Funktionen
 // ============================================================
 
-inline void setPixel(uint8_t* bitmap, int x, int y) {
-    if (x >= 0 && x < LABEL_WIDTH && y >= 0 && y < LABEL_HEIGHT) {
-        int byteIdx = y * BYTES_PER_ROW + (x / 8);
-        int bitIdx = 7 - (x % 8);
-        bitmap[byteIdx] &= ~(1 << bitIdx);
-    }
-}
-
-void sendLabelBitmap(uint8_t* bitmap) {
+void sendLabelBitmap(const uint8_t* bitmap, int size) {
     String header = "SIZE 14.0 mm,40.0 mm\r\n"
                     "GAP 5.0 mm,0 mm\r\n"
                     "DIRECTION 0,0\r\n"
@@ -460,119 +453,8 @@ void sendLabelBitmap(uint8_t* bitmap) {
                     "BITMAP 0,0,12,284,1,";
 
     SerialBT.print(header);
-    SerialBT.write(bitmap, BITMAP_SIZE);
+    SerialBT.write(bitmap, size);
     SerialBT.print("\r\nPRINT 1\r\n");
-}
-
-// Eine Textzeile auf Bitmap zeichnen (zentriert, mit Skalierung)
-void drawTextLineScaled(uint8_t* bitmap, const char* start, int charCount, int y, int scale) {
-    int charWidth = 5 * scale + scale;  // 5 Pixel * scale + spacing
-    int textWidth = charCount * charWidth - scale;
-    int startX = (LABEL_WIDTH - textWidth) / 2;
-    if (startX < 0) startX = 0;
-
-    const char* ptr = start;
-    for (int charIndex = 0; charIndex < charCount && *ptr; charIndex++) {
-        const uint8_t* glyph = getGlyph(&ptr);
-
-        for (int col = 0; col < 5; col++) {
-            uint8_t colData = pgm_read_byte(&glyph[col]);
-            for (int row = 0; row < 7; row++) {
-                if (colData & (1 << row)) {
-                    // Pixel mit Skalierung zeichnen
-                    for (int sy = 0; sy < scale; sy++) {
-                        for (int sx = 0; sx < scale; sx++) {
-                            setPixel(bitmap, startX + charIndex * charWidth + col * scale + sx,
-                                     y + row * scale + sy);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Eine Textzeile auf Bitmap zeichnen (zentriert)
-void drawTextLine(uint8_t* bitmap, const char* start, int charCount, int y) {
-    int textWidth = charCount * 6 - 1;  // 5 Pixel + 1 Pixel Abstand
-    int startX = (LABEL_WIDTH - textWidth) / 2;
-    if (startX < 0) startX = 0;
-
-    const char* ptr = start;
-    for (int charIndex = 0; charIndex < charCount && *ptr; charIndex++) {
-        const uint8_t* glyph = getGlyph(&ptr);
-
-        for (int col = 0; col < 5; col++) {
-            uint8_t colData = pgm_read_byte(&glyph[col]);
-            for (int row = 0; row < 7; row++) {
-                if (colData & (1 << row)) {
-                    setPixel(bitmap, startX + charIndex * 6 + col, y + row);
-                }
-            }
-        }
-    }
-}
-
-// Text auf Bitmap zeichnen mit Zeilenumbruch (max 10 Zeilen)
-void drawTextCentered(uint8_t* bitmap, const char* text, int y) {
-    const int MAX_LINES = 10;
-    const int CHARS_PER_LINE = LABEL_WIDTH / 6;  // 16 Zeichen bei 96px Breite
-    const int LINE_HEIGHT = 9;  // 7 Pixel Font + 2 Pixel Abstand
-
-    int lineCount = 0;
-    const char* ptr = text;
-
-    while (*ptr && lineCount < MAX_LINES) {
-        const char* lineStart = ptr;
-        const char* lastSpace = nullptr;
-        int charCount = 0;
-
-        // Finde Zeilenende (Wortgrenze oder max Zeichen)
-        while (*ptr && charCount < CHARS_PER_LINE) {
-            if (*ptr == ' ') {
-                lastSpace = ptr;
-            }
-
-            // UTF-8: 2-Byte Sequenz überspringen
-            if ((uint8_t)*ptr == 0xC3 && ptr[1] != 0) {
-                ptr += 2;
-            } else {
-                ptr++;
-            }
-            charCount++;
-        }
-
-        // Wenn noch Text übrig und letztes Zeichen kein Leerzeichen
-        if (*ptr && lastSpace && lastSpace > lineStart) {
-            // Bei Wortgrenze umbrechen
-            ptr = lastSpace + 1;  // Nach dem Leerzeichen weitermachen
-            charCount = 0;
-            const char* tmp = lineStart;
-            while (tmp < lastSpace) {
-                if ((uint8_t)*tmp == 0xC3 && tmp[1] != 0) {
-                    tmp += 2;
-                } else {
-                    tmp++;
-                }
-                charCount++;
-            }
-        }
-
-        // Zeile zeichnen
-        if (charCount > 0) {
-            drawTextLine(bitmap, lineStart, charCount, y + lineCount * LINE_HEIGHT);
-        }
-        lineCount++;
-
-        // Führende Leerzeichen überspringen
-        while (*ptr == ' ') ptr++;
-    }
-}
-
-// Text zentriert mit Skalierung zeichnen (einzelne Zeile)
-void drawTextScaled(uint8_t* bitmap, const char* text, int y, int scale) {
-    int len = countDisplayChars(text);
-    drawTextLineScaled(bitmap, text, len, y, scale);
 }
 
 // ============================================================
@@ -593,77 +475,25 @@ const char* printLabel(const char* link, const char* name, const char* id) {
         return statusError;
     }
 
-    if (!link || strlen(link) == 0) {
-        return "missing link";
-    }
-
     Serial.printf("Drucke Label: %s / %s\n", name, id);
 
-    // QR-Code generieren - kleinste Version die passt
-    QRCode qrcode;
-    int bestVersion = 0, bestScale = 1;
-
-    // Finde kleinste Version die den Text kodieren kann (min. Version 3 für URLs)
-    for (int version = 3; version <= 12; version++) {
-        uint8_t tempData[qrcode_getBufferSize(version)];
-        if (qrcode_initText(&qrcode, tempData, version, ECC_MEDIUM, link) == 0) {
-            bestVersion = version;
-            break;  // Erste passende Version nehmen
-        }
+    // Label-Bild generieren
+    LabelImage label(LABEL_WIDTH, LABEL_HEIGHT);
+    if (!label.generate(link, name, id)) {
+        Serial.printf("Label-Fehler: %s\n", label.getError());
+        return label.getError();
     }
 
-    if (bestVersion == 0) {
-        Serial.println("QR-Code Fehler!");
-        return "QR code generation failed";
+    // Debug: Base64 Data-URL ausgeben (klickbar im Browser)
+    char* dataUrl = label.toDataURL();
+    if (dataUrl) {
+        Serial.println("Label-Vorschau:");
+        Serial.println(dataUrl);
+        free(dataUrl);
     }
-
-    uint8_t qrcodeData[qrcode_getBufferSize(bestVersion)];
-    qrcode_initText(&qrcode, qrcodeData, bestVersion, ECC_MEDIUM, link);
-
-    int qrSize = qrcode.size;
-
-    // Maximale Skalierung finden die noch passt
-    bestScale = LABEL_WIDTH / qrSize;
-    if (bestScale < 1) bestScale = 1;
-
-    int qrPixels = qrSize * bestScale;
-    Serial.printf("QR: Version %d, %dx%d, Scale %dx = %d Pixel\n",
-        bestVersion, qrSize, qrSize, bestScale, qrPixels);
-
-    // Layout berechnen (Portrait: QR oben, Text unten)
-    int qrY = 10;  // QR-Code beginnt bei Y=10
-    int qrX = (LABEL_WIDTH - qrPixels) / 2;
-    int idY = qrY + qrPixels + 10;     // ID (gross, 2x skaliert = 14px hoch)
-    int nameY = idY + 18;              // Name (normal, darunter)
-
-    // Bitmap erstellen
-    uint8_t* bitmap = (uint8_t*)malloc(BITMAP_SIZE);
-    if (!bitmap) {
-        Serial.println("Speicherfehler!");
-        return "out of memory";
-    }
-    memset(bitmap, 0xFF, BITMAP_SIZE);
-
-    // QR-Code zeichnen
-    for (int qy = 0; qy < qrSize; qy++) {
-        for (int qx = 0; qx < qrSize; qx++) {
-            if (qrcode_getModule(&qrcode, qx, qy)) {
-                for (int sy = 0; sy < bestScale; sy++) {
-                    for (int sx = 0; sx < bestScale; sx++) {
-                        setPixel(bitmap, qrX + qx * bestScale + sx, qrY + qy * bestScale + sy);
-                    }
-                }
-            }
-        }
-    }
-
-    // Text zeichnen: ID gross oben, Name normal darunter
-    drawTextScaled(bitmap, id, idY, 2);  // ID mit 2x Skalierung
-    drawTextCentered(bitmap, name, nameY);  // Name normal
 
     // Senden
-    sendLabelBitmap(bitmap);
-    free(bitmap);
+    sendLabelBitmap(label.getData(), label.getBitmapSize());
     Serial.println("Label gesendet!");
     return nullptr;  // Erfolg
 }
@@ -686,7 +516,7 @@ void printFrame() {
         bitmap[y * BYTES_PER_ROW + BYTES_PER_ROW - 1] &= 0xFE;
     }
 
-    sendLabelBitmap(bitmap);
+    sendLabelBitmap(bitmap, BITMAP_SIZE);
     free(bitmap);
     Serial.println("Rahmen gesendet!");
 }
