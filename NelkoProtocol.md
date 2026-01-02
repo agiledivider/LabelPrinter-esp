@@ -4,12 +4,22 @@ Reverse-engineered protocol information for the Nelko P21 thermal label printer.
 
 ## Connection
 
-- **Type:** Bluetooth Classic SPP/RFCOMM (Serial Port Profile)
-- **BLE:** Not supported - printer does not respond to BLE connections
+- **Type:** Bluetooth Classic SPP/RFCOMM (Serial Port Profile) or BLE GATT
 - **Device Name:** Contains "P21" or "Nelko"
 - **Pairing:** No PIN required
 - **Chip:** JieLi AC6951C Bluetooth chip
 - **USB:** Disabled - only responds with `ERROR0`
+
+### BLE GATT (used by official app)
+
+| Handle | Description |
+|--------|-------------|
+| 0x0006 | Write commands |
+| 0x0008 | Receive notifications (responses) |
+
+### Bluetooth Classic SPP
+
+Standard serial connection. May require restart if scan fails after idle.
 
 ## Label Specifications
 
@@ -33,8 +43,7 @@ All commands require **CRLF** (`\r\n`) line termination. Responses are also CRLF
 |---------|-------------|----------|
 | `BATTERY?\r\n` | Query battery level | Echo + 2 bytes (first = BCD percentage) |
 | `CONFIG?\r\n` | Query device config | Echo + 10 bytes (see below) |
-| `\x1B!?\r\n` | Printer ready status | Status byte |
-| `\x1B!o\r\n` | Cancel pause status | - |
+| `\x1B!o\r\n` | Query printer status | 16 bytes (paper status, dimensions) |
 
 ### BATTERY Response
 
@@ -105,7 +114,34 @@ PRINT 1\r\n
 |---------|--------|
 | `BATTERY?` | ✓ Working (BCD response) |
 | `CONFIG?` | ✓ Working (10 bytes) |
+| `ESC!o` | ✓ Working (16 bytes status response) |
 | TSPL2 print commands | ✓ Working |
+
+### ESC!o Status Response (16 bytes)
+
+Command: `0x1B 0x21 0x6F 0x0D 0x0A` (ESC!o\r\n)
+
+**Example responses:**
+- Paper OK: `00 0C 01 12 03 00 03 01 12 12 15 28 0F 0E ED 03`
+- Paper Error: `04 0C 00 00 00 00 00 00 00 00 00 00 00 00 09 BF`
+
+| Byte | Paper OK | Paper Error | Description |
+|------|----------|-------------|-------------|
+| 0 | 0x00 | 0x04 | **Status code** (0=OK, 4=paper error) |
+| 1 | 0x0C | 0x0C | Packet type (constant) |
+| 2-10 | varies | 0x00 | Unknown |
+| 11 | 0x28 (40) | 0x00 | Label height in mm |
+| 12 | 0x0F (15) | 0x00 | Unknown |
+| 13 | 0x0E (14) | 0x00 | Label width in mm |
+| 14-15 | varies | 0x09 0xBF | Checksum / flags |
+
+**Status codes (Byte 0):**
+- `0x00` = Ready / Paper OK
+- `0x04` = Paper error / No paper
+
+**Paper dimensions (when status OK):**
+- Byte 11: Label height in mm (e.g., 0x28 = 40mm)
+- Byte 13: Label width in mm (e.g., 0x0E = 14mm)
 
 ## Commands That Don't Work
 
@@ -118,9 +154,8 @@ These standard TSPL2/ESC-POS commands were tested but received no response:
 
 ## Limitations
 
-1. **No paper/error detection** - Printer doesn't report out-of-paper or jam errors
-2. **No print confirmation** - No acknowledgment after successful print
-3. **Limited feedback** - Only battery and config queries confirmed working
+1. **No print confirmation** - No acknowledgment after successful print
+2. **No detailed error codes** - Only basic paper present/absent detection
 
 ## Hardware Notes
 
@@ -131,10 +166,11 @@ These standard TSPL2/ESC-POS commands were tested but received no response:
 
 ## ESP32 Implementation Notes
 
-- Use Bluetooth Classic with `BluetoothSerial` library
-- BLE (NimBLE) does not work with this printer
-- SSL for MQTT may cause memory issues due to limited RAM
-- Recommended partition: `huge_app.csv` (3MB app space)
+- **Bluetooth Classic:** Use `BluetoothSerial` library (SPP)
+- **BLE alternative:** Use NimBLE with GATT handles 0x0006 (write) / 0x0008 (notify)
+- **Idle issue:** Bluetooth scan may fail after idle period - restart with `SerialBT.end()` / `SerialBT.begin()`
+- **Memory:** SSL for MQTT may cause issues due to limited RAM
+- **Partition:** Recommended `huge_app.csv` (3MB app space)
 
 ## Firmware Updates
 
