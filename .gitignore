@@ -25,3 +25,6 @@ Thumbs.db
 
 # Local config with credentials
 src/config.h
+/nelko-paper not ok.txt
+/nelko-paper ok.txt
+/nelko-paper ok raw.txt
