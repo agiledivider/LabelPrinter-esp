@@ -464,16 +464,42 @@ void sendLabelBitmap(uint8_t* bitmap) {
     SerialBT.print("\r\nPRINT 1\r\n");
 }
 
-// Text auf Bitmap zeichnen (zentriert)
-void drawTextCentered(uint8_t* bitmap, const char* text, int y) {
-    int len = countDisplayChars(text);  // UTF-8 aware count
-    int textWidth = len * 6 - 1;  // 5 Pixel + 1 Pixel Abstand
+// Eine Textzeile auf Bitmap zeichnen (zentriert, mit Skalierung)
+void drawTextLineScaled(uint8_t* bitmap, const char* start, int charCount, int y, int scale) {
+    int charWidth = 5 * scale + scale;  // 5 Pixel * scale + spacing
+    int textWidth = charCount * charWidth - scale;
     int startX = (LABEL_WIDTH - textWidth) / 2;
     if (startX < 0) startX = 0;
 
-    const char* ptr = text;
-    int charIndex = 0;
-    while (*ptr && startX + charIndex * 6 < LABEL_WIDTH) {
+    const char* ptr = start;
+    for (int charIndex = 0; charIndex < charCount && *ptr; charIndex++) {
+        const uint8_t* glyph = getGlyph(&ptr);
+
+        for (int col = 0; col < 5; col++) {
+            uint8_t colData = pgm_read_byte(&glyph[col]);
+            for (int row = 0; row < 7; row++) {
+                if (colData & (1 << row)) {
+                    // Pixel mit Skalierung zeichnen
+                    for (int sy = 0; sy < scale; sy++) {
+                        for (int sx = 0; sx < scale; sx++) {
+                            setPixel(bitmap, startX + charIndex * charWidth + col * scale + sx,
+                                     y + row * scale + sy);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Eine Textzeile auf Bitmap zeichnen (zentriert)
+void drawTextLine(uint8_t* bitmap, const char* start, int charCount, int y) {
+    int textWidth = charCount * 6 - 1;  // 5 Pixel + 1 Pixel Abstand
+    int startX = (LABEL_WIDTH - textWidth) / 2;
+    if (startX < 0) startX = 0;
+
+    const char* ptr = start;
+    for (int charIndex = 0; charIndex < charCount && *ptr; charIndex++) {
         const uint8_t* glyph = getGlyph(&ptr);
 
         for (int col = 0; col < 5; col++) {
@@ -484,8 +510,69 @@ void drawTextCentered(uint8_t* bitmap, const char* text, int y) {
                 }
             }
         }
-        charIndex++;
     }
+}
+
+// Text auf Bitmap zeichnen mit Zeilenumbruch (max 10 Zeilen)
+void drawTextCentered(uint8_t* bitmap, const char* text, int y) {
+    const int MAX_LINES = 10;
+    const int CHARS_PER_LINE = LABEL_WIDTH / 6;  // 16 Zeichen bei 96px Breite
+    const int LINE_HEIGHT = 9;  // 7 Pixel Font + 2 Pixel Abstand
+
+    int lineCount = 0;
+    const char* ptr = text;
+
+    while (*ptr && lineCount < MAX_LINES) {
+        const char* lineStart = ptr;
+        const char* lastSpace = nullptr;
+        int charCount = 0;
+
+        // Finde Zeilenende (Wortgrenze oder max Zeichen)
+        while (*ptr && charCount < CHARS_PER_LINE) {
+            if (*ptr == ' ') {
+                lastSpace = ptr;
+            }
+
+            // UTF-8: 2-Byte Sequenz überspringen
+            if ((uint8_t)*ptr == 0xC3 && ptr[1] != 0) {
+                ptr += 2;
+            } else {
+                ptr++;
+            }
+            charCount++;
+        }
+
+        // Wenn noch Text übrig und letztes Zeichen kein Leerzeichen
+        if (*ptr && lastSpace && lastSpace > lineStart) {
+            // Bei Wortgrenze umbrechen
+            ptr = lastSpace + 1;  // Nach dem Leerzeichen weitermachen
+            charCount = 0;
+            const char* tmp = lineStart;
+            while (tmp < lastSpace) {
+                if ((uint8_t)*tmp == 0xC3 && tmp[1] != 0) {
+                    tmp += 2;
+                } else {
+                    tmp++;
+                }
+                charCount++;
+            }
+        }
+
+        // Zeile zeichnen
+        if (charCount > 0) {
+            drawTextLine(bitmap, lineStart, charCount, y + lineCount * LINE_HEIGHT);
+        }
+        lineCount++;
+
+        // Führende Leerzeichen überspringen
+        while (*ptr == ' ') ptr++;
+    }
+}
+
+// Text zentriert mit Skalierung zeichnen (einzelne Zeile)
+void drawTextScaled(uint8_t* bitmap, const char* text, int y, int scale) {
+    int len = countDisplayChars(text);
+    drawTextLineScaled(bitmap, text, len, y, scale);
 }
 
 // ============================================================
@@ -546,8 +633,8 @@ const char* printLabel(const char* link, const char* name, const char* id) {
     // Layout berechnen (Portrait: QR oben, Text unten)
     int qrY = 10;  // QR-Code beginnt bei Y=10
     int qrX = (LABEL_WIDTH - qrPixels) / 2;
-    int textY1 = qrY + qrPixels + 15;  // Name
-    int textY2 = textY1 + 12;          // ID
+    int idY = qrY + qrPixels + 10;     // ID (gross, 2x skaliert = 14px hoch)
+    int nameY = idY + 18;              // Name (normal, darunter)
 
     // Bitmap erstellen
     uint8_t* bitmap = (uint8_t*)malloc(BITMAP_SIZE);
@@ -570,12 +657,9 @@ const char* printLabel(const char* link, const char* name, const char* id) {
         }
     }
 
-    // Text zeichnen
-    drawTextCentered(bitmap, name, textY1);
-
-    char idLine[32];
-    snprintf(idLine, sizeof(idLine), "ID: %s", id);
-    drawTextCentered(bitmap, idLine, textY2);
+    // Text zeichnen: ID gross oben, Name normal darunter
+    drawTextScaled(bitmap, id, idY, 2);  // ID mit 2x Skalierung
+    drawTextCentered(bitmap, name, nameY);  // Name normal
 
     // Senden
     sendLabelBitmap(bitmap);
