@@ -189,8 +189,11 @@ void autoConnectPrinter() {
         Serial.println("Bluetooth-Scan fehlgeschlagen! Versuche Neustart...");
 
         // Bluetooth neu initialisieren
+        SerialBT.disconnect();
         SerialBT.end();
+        btStop();
         delay(500);
+        btStart();
         if (!SerialBT.begin("ESP32_LabelPrinter", true)) {
             Serial.println("Bluetooth-Neustart fehlgeschlagen!");
             return;
@@ -254,8 +257,10 @@ void autoConnectPrinter() {
 
             // Config und Status abfragen
             delay(500);  // Kurz warten nach Verbindung
-            queryBattery();
             queryConfig();
+            delay(300);
+            queryBattery();
+            delay(300);
             queryStatus();
             return;
         }
@@ -278,12 +283,13 @@ void queryBattery() {
         return;
     }
 
-    // Buffer leeren
+    // Buffer leeren - warten auf spaete Daten
+    delay(100);
     while (SerialBT.available()) SerialBT.read();
 
     // Batterie abfragen (korrekter Befehl: BATTERY?)
     SerialBT.print("BATTERY?\r\n");
-    delay(200);
+    delay(300);
 
     // Drucker sendet Echo zurück: "BATTERY?" + 2 Bytes Antwort
     // Echo überspringen (8 Zeichen "BATTERY?")
@@ -301,8 +307,8 @@ void queryBattery() {
     while (millis() - start < 300) {
         if (SerialBT.available()) {
             uint8_t raw = SerialBT.read();
-            // Zweites Byte und CRLF verwerfen
-            delay(50);
+            // Rest der Antwort verwerfen (CRLF etc.)
+            delay(200);
             while (SerialBT.available()) SerialBT.read();
 
             // BCD dekodieren: 0x99 = 99%, 0x66 = 66%
@@ -327,28 +333,36 @@ void queryStatus() {
         return;
     }
 
-    // Buffer leeren
-    while (SerialBT.available()) SerialBT.read();
-
+    // Buffer leeren - warten auf spaete Daten
+    delay(100);
+    Serial.println("Buffer leeren...");
+    while (SerialBT.available()) {
+        Serial.print(SerialBT.read());
+    }
+    Serial.println("...fertig.\r\n");
     // ESC!o senden
-    SerialBT.write(0x1B);
-    SerialBT.write('!');
-    SerialBT.write('o');
-    SerialBT.print("\r\n");
-    delay(300);
+    SerialBT.print("\x1B!o\r\n");
 
     // 16 Byte Antwort lesen
     uint8_t response[16];
     int count = 0;
     unsigned long start = millis();
-    while (millis() - start < 500 && count < 16) {
+    Serial.println("Response...");
+    while (millis() - start < 1000 && count < 16) {
         if (SerialBT.available()) {
-            response[count++] = SerialBT.read();
+            response[count] = SerialBT.read();
+            Serial.print(response[count]);
+            count++;
         }
     }
+    Serial.println("\r\n...fertig.\r\n");
 
     // Rest verwerfen
-    while (SerialBT.available()) SerialBT.read();
+    Serial.println("Rest verwerfen...");
+    while (SerialBT.available()) {
+        Serial.print(SerialBT.read());
+    }
+    Serial.println("...fertig.\r\n");
 
     if (count < 1) {
         Serial.println("Status: (keine Antwort)");
@@ -474,6 +488,8 @@ void debugPrinterCommand(const char* cmd) {
 // Prüft Drucker-Status mit ESC!o Befehl
 // Gibt Fehlermeldung zurück oder nullptr wenn OK
 const char* checkPrinterStatus() {
+    queryStatus();
+
     if (!printerConnected || !SerialBT.connected()) {
         printerConnected = false;
         return "printer not connected";
@@ -498,6 +514,12 @@ const char* checkPrinterStatus() {
             response[count++] = SerialBT.read();
         }
     }
+
+    Serial.print("Response (Hex): ");
+    for (int i = 0; i < 16; i++) {
+        Serial.printf("%02X ", response[i]);
+    }
+    Serial.println();
 
     // Rest verwerfen
     while (SerialBT.available()) SerialBT.read();
@@ -753,14 +775,53 @@ void connectMQTT() {
     }
 }
 
+unsigned long lastMqttRetry = 0;
+const unsigned long MQTT_RETRY_INTERVAL = 10000;  // 10 Sekunden zwischen Verbindungsversuchen
+int dnsFailCount = 0;
+const int DNS_FAIL_RECONNECT_THRESHOLD = 3;  // Nach 3 DNS-Fehlern WiFi neu verbinden
+
+bool checkDns(const char* hostname) {
+    IPAddress ip;
+    if (WiFi.hostByName(hostname, ip)) {
+        dnsFailCount = 0;
+        return true;
+    }
+
+    dnsFailCount++;
+    Serial.printf("DNS fehlgeschlagen fuer %s (%d/%d)\n", hostname, dnsFailCount, DNS_FAIL_RECONNECT_THRESHOLD);
+
+    if (dnsFailCount >= DNS_FAIL_RECONNECT_THRESHOLD) {
+        Serial.println("Zu viele DNS-Fehler, WiFi wird neu verbunden...");
+        dnsFailCount = 0;
+        WiFi.disconnect();
+        wifiConnected = false;
+        delay(1000);
+        while (!wifiConnected) {
+            connectWiFi();
+            if (!wifiConnected) {
+                Serial.println("WiFi fehlgeschlagen, neuer Versuch in 5 Sekunden...");
+                delay(5000);
+            }
+        }
+    }
+    return false;
+}
+
 void checkMQTT() {
     if (!wifiConnected) return;
 
     if (!mqttClient.connected()) {
         mqttConnected = false;
-        connectMQTT();
+        unsigned long now = millis();
+        if (now - lastMqttRetry >= MQTT_RETRY_INTERVAL) {
+            lastMqttRetry = now;
+            if (checkDns(mqttServer)) {
+                connectMQTT();
+            }
+        }
+    } else {
+        mqttClient.loop();
     }
-    mqttClient.loop();
 }
 
 unsigned long lastStatusTime = 0;
@@ -857,7 +918,7 @@ void setup() {
         autoConnectPrinter();
     }
 
-    printHelp();
+    //printHelp();
 }
 
 void loop() {
