@@ -202,7 +202,7 @@ bool LabelImage::generate(const char* link, const char* name, const char* id) {
     }
 
     int idY = qrY + qrHeight + 10;
-    int nameY = idY + 18;
+    int nameY = idY + 22;
 
     // Text zeichnen
     drawTextScaled(id, idY, 2);
