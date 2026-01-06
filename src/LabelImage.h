@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include "qrcode.h"
 #include "font5x7.h"
+#include "msb_logo.h"
 
 class LabelImage {
 public:
@@ -48,11 +49,14 @@ private:
     // Text-Rendering
     void drawTextLine(const char* start, int charCount, int y);
     void drawTextLineScaled(const char* start, int charCount, int y, int scale);
-    void drawTextCentered(const char* text, int y);
+    int drawTextCentered(const char* text, int y);  // Returns number of lines
     void drawTextScaled(const char* text, int y, int scale);
 
     // QR-Code zeichnen
     bool drawQRCode(const char* data, int y, int* outHeight);
+
+    // Logo zeichnen
+    void drawLogo(int y);
 };
 
 #endif

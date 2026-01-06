@@ -78,7 +78,7 @@ void LabelImage::drawTextLineScaled(const char* start, int charCount, int y, int
     }
 }
 
-void LabelImage::drawTextCentered(const char* text, int y) {
+int LabelImage::drawTextCentered(const char* text, int y) {
     const int MAX_LINES = 10;
     const int CHARS_PER_LINE = _width / 6;
     const int LINE_HEIGHT = 9;
@@ -125,6 +125,7 @@ void LabelImage::drawTextCentered(const char* text, int y) {
 
         while (*ptr == ' ') ptr++;
     }
+    return lineCount;
 }
 
 void LabelImage::drawTextScaled(const char* text, int y, int scale) {
@@ -177,6 +178,24 @@ bool LabelImage::drawQRCode(const char* data, int y, int* outHeight) {
     return true;
 }
 
+void LabelImage::drawLogo(int y) {
+    // Logo zentrieren (50px Logo auf 96px Label)
+    int logoX = (_width - MSB_LOGO_WIDTH) / 2;
+
+    for (int ly = 0; ly < MSB_LOGO_HEIGHT; ly++) {
+        for (int lx = 0; lx < MSB_LOGO_WIDTH; lx++) {
+            int byteIdx = ly * MSB_LOGO_BYTES_PER_ROW + (lx / 8);
+            int bitIdx = 7 - (lx % 8);
+            uint8_t pixel = pgm_read_byte(&msbLogo[byteIdx]);
+
+            // Logo Daten sind invertiert: 1 = weiss, 0 = schwarz
+            if (!(pixel & (1 << bitIdx))) {
+                setPixel(logoX + lx, y + ly);
+            }
+        }
+    }
+}
+
 bool LabelImage::generate(const char* link, const char* name, const char* id) {
     _error = nullptr;
 
@@ -206,7 +225,20 @@ bool LabelImage::generate(const char* link, const char* name, const char* id) {
 
     // Text zeichnen
     drawTextScaled(id, idY, 2);
-    drawTextCentered(name, nameY);
+    int textLines = drawTextCentered(name, nameY);
+
+    // Logo Position berechnen (nach Text, mit Abstand)
+    const int LINE_HEIGHT = 9;
+    const int ID_HEIGHT = 14;  // 7 * 2 (scale)
+    int textEndY = nameY + textLines * LINE_HEIGHT;
+
+    // Logo am unteren Ende, mindestens 10px nach Text
+    int logoY = textEndY + 10;
+
+    // Sicherstellen, dass Logo aufs Label passt
+    if (logoY + MSB_LOGO_HEIGHT <= _height) {
+        drawLogo(logoY);
+    }
 
     return true;
 }
