@@ -8,6 +8,7 @@
 #include "config.h"
 #include "font5x7.h"
 #include "LabelImage.h"
+#include "QRCodeRenderer.h"
 
 // Label-Konfiguration
 const int LABEL_WIDTH = 96;
@@ -462,7 +463,8 @@ void sendLabelBitmap(const uint8_t* bitmap, int size) {
 // ============================================================
 
 // Gibt nullptr bei Erfolg zurück, sonst Fehlermeldung
-const char* printLabel(const char* link, const char* name, const char* id) {
+// qrSize: "S", "M" oder "L" (default: "L")
+const char* printLabel(const char* link, const char* name, const char* id, const char* qrSize = nullptr) {
     if (!printerConnected) {
         Serial.println("Drucker nicht verbunden!");
         return "printer not connected";
@@ -475,11 +477,14 @@ const char* printLabel(const char* link, const char* name, const char* id) {
         return statusError;
     }
 
-    Serial.printf("Drucke Label: %s / %s\n", name, id);
+    // QR-Code Groesse parsen (Default: Large)
+    QRSize size = QRCodeRenderer::sizeFromString(qrSize);
+    const char* sizeStr = (size == QRSize::Small) ? "S" : (size == QRSize::Medium) ? "M" : "L";
+    Serial.printf("Drucke Label: %s / %s (QR: %s)\n", name, id, sizeStr);
 
     // Label-Bild generieren
     LabelImage label(LABEL_WIDTH, LABEL_HEIGHT);
-    if (!label.generate(link, name, id)) {
+    if (!label.generate(link, name, id, size)) {
         Serial.printf("Label-Fehler: %s\n", label.getError());
         return label.getError();
     }
@@ -559,8 +564,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     const char* link = doc["link"] | "";
     const char* name = doc["name"] | "";
     const char* id = doc["id"] | "";
+    const char* size = doc["size"] | "L";  // QR-Code Groesse: S, M, L (Default: L)
 
-    const char* error = printLabel(link, name, id);
+    const char* error = printLabel(link, name, id, size);
     sendResult(printId, error == nullptr, error);
 }
 
@@ -763,7 +769,7 @@ void loop() {
             printFrame();
         }
         else if (cmdLower == "qrcode") {
-            printLabel("https://zeug.makerspacebonn.de/i/1259", "Test Item", "1259");
+            printLabel("https://zeug.makerspacebonn.de/i/1259", "Test Item", "1259", "L");
         }
         else if (cmdLower == "wifi") {
             connectWiFi();

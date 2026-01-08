@@ -133,48 +133,19 @@ void LabelImage::drawTextScaled(const char* text, int y, int scale) {
     drawTextLineScaled(text, len, y, scale);
 }
 
-bool LabelImage::drawQRCode(const char* data, int y, int* outHeight) {
-    QRCode qrcode;
-    int bestVersion = 0;
+bool LabelImage::drawQRCode(const char* data, int y, QRSize size, int* outHeight) {
+    QRCodeRenderer qr;
 
-    // Finde kleinste Version die den Text kodieren kann
-    for (int version = 3; version <= 12; version++) {
-        uint8_t tempData[qrcode_getBufferSize(version)];
-        if (qrcode_initText(&qrcode, tempData, version, ECC_MEDIUM, data) == 0) {
-            bestVersion = version;
-            break;
-        }
-    }
-
-    if (bestVersion == 0) {
+    if (!qr.generate(data)) {
+        _error = qr.getError();
         return false;
     }
 
-    uint8_t qrcodeData[qrcode_getBufferSize(bestVersion)];
-    qrcode_initText(&qrcode, qrcodeData, bestVersion, ECC_MEDIUM, data);
-
-    int qrSize = qrcode.size;
-    int scale = _width / qrSize;
-    if (scale < 1) scale = 1;
-
-    int qrPixels = qrSize * scale;
-    int qrX = (_width - qrPixels) / 2;
-
-    for (int qy = 0; qy < qrSize; qy++) {
-        for (int qx = 0; qx < qrSize; qx++) {
-            if (qrcode_getModule(&qrcode, qx, qy)) {
-                for (int sy = 0; sy < scale; sy++) {
-                    for (int sx = 0; sx < scale; sx++) {
-                        setPixel(qrX + qx * scale + sx, y + qy * scale + sy);
-                    }
-                }
-            }
-        }
+    if (!qr.draw(_bitmap, _width, _height, _bytesPerRow, y, size, outHeight)) {
+        _error = qr.getError();
+        return false;
     }
 
-    if (outHeight) {
-        *outHeight = qrPixels;
-    }
     return true;
 }
 
@@ -196,7 +167,7 @@ void LabelImage::drawLogo(int y) {
     }
 }
 
-bool LabelImage::generate(const char* link, const char* name, const char* id) {
+bool LabelImage::generate(const char* link, const char* name, const char* id, QRSize qrSize) {
     _error = nullptr;
 
     if (!_bitmap) {
@@ -215,8 +186,11 @@ bool LabelImage::generate(const char* link, const char* name, const char* id) {
     int qrY = 10;
     int qrHeight = 0;
 
-    if (!drawQRCode(link, qrY, &qrHeight)) {
-        _error = "QR code generation failed";
+    if (!drawQRCode(link, qrY, qrSize, &qrHeight)) {
+        // _error wird in drawQRCode gesetzt
+        if (!_error) {
+            _error = "QR code generation failed";
+        }
         return false;
     }
 
