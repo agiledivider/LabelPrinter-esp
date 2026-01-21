@@ -60,11 +60,19 @@ Created `JsonHelpers.h` with helper functions for MQTT messages.
 - `buildStatus()` - Status JSON (printer, battery, wifi, heap, uptime)
 - Simplified sendResult(), mqttCallback(), and publishStatus() in main.cpp
 
+### 10. Extract HTML to PROGMEM ✅
+Created `ConfigPortalHtml.h` with static HTML content stored in flash.
+- Split config page into 12 PROGMEM string segments for value interpolation
+- Moved success page to single PROGMEM string
+- Updated `getConfigPage()` to concatenate FPSTR() segments with config values
+- Updated `getSuccessPage()` to return FPSTR() directly
+- Saves ~4KB RAM by keeping HTML in flash instead of heap
+
 ---
 
 ## Remaining
 
-### 4. Remove Singleton Anti-pattern (NelkoP21Printer.cpp:4,83-84)
+### 1. Remove Singleton Anti-pattern (NelkoP21Printer.cpp:4,83-84)
 The static instance pointer for Bluetooth callback is a singleton anti-pattern.
 
 ```cpp
@@ -75,15 +83,7 @@ static void btCallback(...) { if (_instance) ... }
 // Suggested: Lambda capture or member callback wrapper
 ```
 
-### 5. Extract HTML to PROGMEM (ConfigPortal.cpp:147-262)
-Large HTML string uses RAM instead of flash.
-
-```cpp
-// Suggested: Use PROGMEM for static content
-const char CONFIG_PAGE_HEADER[] PROGMEM = R"rawliteral(...)rawliteral";
-```
-
-### 6. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
+### 2. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
 Raw pointers with manual memory management.
 
 ```cpp
@@ -99,6 +99,5 @@ std::unique_ptr<uint8_t[]> _bitmap;
 ---
 
 ## Priority Order (Suggested)
-1. #5 - Extract HTML to PROGMEM (saves RAM)
-2. #4 - Remove singleton (architectural improvement)
-3. #6 - Smart pointers (modern C++, but may have ESP32 limitations)
+1. #1 - Remove singleton (architectural improvement)
+2. #2 - Smart pointers (modern C++, but may have ESP32 limitations)
