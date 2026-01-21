@@ -1,5 +1,6 @@
 #include "WiFiManager.h"
 #include "StringUtils.h"
+#include "Log.h"
 
 WiFiManager::WiFiManager()
     : _networks(nullptr)
@@ -35,34 +36,34 @@ bool WiFiManager::hasCredentials() const {
 }
 
 bool WiFiManager::tryConnect(const char* ssid, const char* password) {
-    Serial.printf("Trying: %s\n", ssid);
+    LOG_INFOF("Trying: %s", ssid);
     WiFi.begin(ssid, password);
 
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {
         delay(500);
-        Serial.print(".");
+        LOG_RAW(".");
         attempts++;
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("\nConnected to %s\n", ssid);
-        Serial.printf("IP: %s\n", WiFi.localIP().toString().c_str());
+        LOG_INFOF("\nConnected to %s", ssid);
+        LOG_INFOF("IP: %s", WiFi.localIP().toString().c_str());
         return true;
     }
 
-    Serial.println(" failed");
+    LOG_INFO(" failed");
     return false;
 }
 
 bool WiFiManager::connect() {
     if (!hasCredentials()) {
-        Serial.println("No networks configured!");
+        LOG_ERROR("No networks configured!");
         _connected = false;
         return false;
     }
 
-    Serial.println("Connecting to WiFi...");
+    LOG_INFO("Connecting to WiFi...");
 
     // Single credential mode
     if (_useSingleCredentials) {
@@ -82,7 +83,7 @@ bool WiFiManager::connect() {
         }
     }
 
-    Serial.println("No WiFi network reachable!");
+    LOG_ERROR("No WiFi network reachable!");
     _connected = false;
     return false;
 }
@@ -90,7 +91,7 @@ bool WiFiManager::connect() {
 void WiFiManager::disconnect() {
     WiFi.disconnect();
     _connected = false;
-    Serial.println("WiFi disconnected.");
+    LOG_INFO("WiFi disconnected.");
 }
 
 bool WiFiManager::checkDns(const char* hostname) {
@@ -105,11 +106,11 @@ bool WiFiManager::checkDns(const char* hostname) {
     }
 
     _dnsFailCount++;
-    Serial.printf("DNS failed for %s (%d/%d)\n",
+    LOG_ERRORF("DNS failed for %s (%d/%d)",
         hostname, _dnsFailCount, DNS_FAIL_THRESHOLD);
 
     if (_dnsFailCount >= DNS_FAIL_THRESHOLD) {
-        Serial.println("Too many DNS failures, reconnecting WiFi...");
+        LOG_ERROR("Too many DNS failures, reconnecting WiFi...");
         reconnect();
     }
 
@@ -125,7 +126,7 @@ void WiFiManager::reconnect() {
     while (!_connected) {
         connect();
         if (!_connected) {
-            Serial.println("WiFi failed, retrying in 5 seconds...");
+            LOG_ERROR("WiFi failed, retrying in 5 seconds...");
             delay(5000);
         }
     }
@@ -153,12 +154,12 @@ void WiFiManager::loop() {
         _lastConnectionCheck = now;
 
         if (_connected && WiFi.status() != WL_CONNECTED) {
-            Serial.println("WiFi connection lost!");
+            LOG_ERROR("WiFi connection lost!");
             _connected = false;
         }
 
         if (!_connected) {
-            Serial.println("WiFi reconnecting...");
+            LOG_INFO("WiFi reconnecting...");
             connect();
         }
     }

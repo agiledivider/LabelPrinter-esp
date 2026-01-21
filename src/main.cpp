@@ -10,6 +10,7 @@
 #include "NelkoP21Printer.h"
 #include "WiFiManager.h"
 #include "MqttManager.h"
+#include "Log.h"
 
 // ============================================================
 // Global Objects
@@ -41,41 +42,41 @@ struct Command {
 
 const char* printLabel(const char* link, const char* name, const char* id, const char* qrSize = nullptr) {
     if (!printer || !printer->isConnected()) {
-        Serial.println("Printer not connected!");
+        LOG_ERROR("Printer not connected!");
         return "printer not connected";
     }
 
     const char* statusError = printer->checkReady();
     if (statusError) {
-        Serial.printf("Printer error: %s\n", statusError);
+        LOG_ERRORF("Printer error: %s", statusError);
         return statusError;
     }
 
     QRSize size = QRCodeRenderer::sizeFromString(qrSize);
     const char* sizeStr = (size == QRSize::Small) ? "S" : (size == QRSize::Medium) ? "M" : "L";
-    Serial.printf("Printing label: %s / %s (QR: %s)\n", name, id, sizeStr);
+    LOG_INFOF("Printing label: %s / %s (QR: %s)", name, id, sizeStr);
 
     LabelImage label(printer->getLabelWidth(), printer->getLabelHeight());
     if (!label.generate(link, name, id, size)) {
-        Serial.printf("Label error: %s\n", label.getError());
+        LOG_ERRORF("Label error: %s", label.getError());
         return label.getError();
     }
 
     char* dataUrl = label.toDataURL();
     if (dataUrl) {
-        Serial.println("Label preview:");
-        Serial.println(dataUrl);
+        LOG_DEBUG("Label preview:");
+        LOG_DEBUG(dataUrl);
         free(dataUrl);
     }
 
     printer->sendBitmap(label.getData());
-    Serial.println("Label sent!");
+    LOG_INFO("Label sent!");
     return nullptr;
 }
 
 void printFrame() {
     if (!printer || !printer->isConnected()) {
-        Serial.println("Printer not connected!");
+        LOG_ERROR("Printer not connected!");
         return;
     }
 
@@ -97,7 +98,7 @@ void printFrame() {
 
     printer->sendBitmap(bitmap);
     free(bitmap);
-    Serial.println("Frame sent!");
+    LOG_INFO("Frame sent!");
 }
 
 // ============================================================
@@ -119,17 +120,17 @@ void sendResult(const char* printId, bool success, const char* error = nullptr) 
     char buffer[256];
     serializeJson(doc, buffer);
     mqttManager.publishResult(buffer);
-    Serial.printf("Result sent: %s\n", buffer);
+    LOG_INFOF("Result sent: %s", buffer);
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    Serial.printf("MQTT message on %s\n", topic);
+    LOG_INFOF("MQTT message on %s", topic);
 
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, payload, length);
 
     if (err) {
-        Serial.printf("JSON error: %s\n", err.c_str());
+        LOG_ERRORF("JSON error: %s", err.c_str());
         sendResult(nullptr, false, "invalid JSON");
         return;
     }
@@ -167,7 +168,7 @@ void publishStatus() {
     char buffer[256];
     serializeJson(doc, buffer);
     mqttManager.publishStatus(buffer);
-    Serial.printf("Status sent: %s\n", buffer);
+    LOG_DEBUGF("Status sent: %s", buffer);
 }
 
 // ============================================================
@@ -175,7 +176,7 @@ void publishStatus() {
 // ============================================================
 
 void startConfigPortal() {
-    Serial.println("\nStarting configuration portal...");
+    LOG_INFO("\nStarting configuration portal...");
 
     if (configPortal == nullptr) {
         configPortal = new ConfigPortal(configManager);
@@ -184,7 +185,7 @@ void startConfigPortal() {
     if (configPortal->begin()) {
         portalActive = true;
     } else {
-        Serial.println("Failed to start portal!");
+        LOG_ERROR("Failed to start portal!");
         delete configPortal;
         configPortal = nullptr;
     }
@@ -204,31 +205,31 @@ void stopConfigPortal() {
 // ============================================================
 
 void printHelp() {
-    Serial.println("\n=== Nelko P21 MQTT Printer ===");
-    Serial.println("Status:");
-    Serial.printf("  WiFi: %s (%d dBm)\n", wifiManager.isConnected() ? "Connected" : "Disconnected", wifiManager.getRSSI());
-    Serial.printf("  MQTT: %s\n", mqttManager.isConnected() ? "Connected" : "Disconnected");
-    Serial.printf("  Printer: %s\n", (printer && printer->isConnected()) ? "Connected" : "Disconnected");
+    LOG_INFO("\n=== Nelko P21 MQTT Printer ===");
+    LOG_INFO("Status:");
+    LOG_INFOF("  WiFi: %s (%d dBm)", wifiManager.isConnected() ? "Connected" : "Disconnected", wifiManager.getRSSI());
+    LOG_INFOF("  MQTT: %s", mqttManager.isConnected() ? "Connected" : "Disconnected");
+    LOG_INFOF("  Printer: %s", (printer && printer->isConnected()) ? "Connected" : "Disconnected");
     if (printer) {
         int battery = printer->getBattery();
         if (battery >= 0) {
-            Serial.printf("  Battery: %d%%\n", battery);
+            LOG_INFOF("  Battery: %d%%", battery);
         }
     }
-    Serial.println("Commands:");
-    Serial.println("  scan        - Scan & connect printer");
-    Serial.println("  disconnect  - Disconnect printer");
-    Serial.println("  status      - Printer status (paper, etc.)");
-    Serial.println("  config      - Printer configuration");
-    Serial.println("  battery     - Query battery level");
-    Serial.println("  frame       - Test: Print frame");
-    Serial.println("  qrcode      - Test: Print QR code");
-    Serial.println("  wifi        - Reconnect WiFi");
-    Serial.println("  mqtt        - Reconnect MQTT");
-    Serial.println("  setup       - Start configuration portal");
-    Serial.println("  clearconfig - Clear config & restart");
-    Serial.println("  help        - Show this help");
-    Serial.println("==============================\n");
+    LOG_INFO("Commands:");
+    LOG_INFO("  scan        - Scan & connect printer");
+    LOG_INFO("  disconnect  - Disconnect printer");
+    LOG_INFO("  status      - Printer status (paper, etc.)");
+    LOG_INFO("  config      - Printer configuration");
+    LOG_INFO("  battery     - Query battery level");
+    LOG_INFO("  frame       - Test: Print frame");
+    LOG_INFO("  qrcode      - Test: Print QR code");
+    LOG_INFO("  wifi        - Reconnect WiFi");
+    LOG_INFO("  mqtt        - Reconnect MQTT");
+    LOG_INFO("  setup       - Start configuration portal");
+    LOG_INFO("  clearconfig - Clear config & restart");
+    LOG_INFO("  help        - Show this help");
+    LOG_INFO("==============================\n");
 }
 
 // ============================================================
@@ -247,7 +248,7 @@ void cmdConfig() { if (printer) printer->queryConfig(); }
 void cmdReady() { if (printer) printer->queryStatus(); }
 void cmdSetup() { startConfigPortal(); }
 void cmdClearConfig() {
-    Serial.println("Clearing configuration and restarting...");
+    LOG_INFO("Clearing configuration and restarting...");
     configManager.clear();
     delay(1000);
     ESP.restart();
@@ -290,18 +291,18 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    Serial.println("\n========================================");
-    Serial.println("  Nelko P21 MQTT Label Printer");
-    Serial.println("========================================");
-    Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
-    Serial.printf("PSRAM: %d bytes\n", ESP.getPsramSize());
+    LOG_INFO("\n========================================");
+    LOG_INFO("  Nelko P21 MQTT Label Printer");
+    LOG_INFO("========================================");
+    LOG_INFOF("Free heap: %d bytes", ESP.getFreeHeap());
+    LOG_INFOF("PSRAM: %d bytes", ESP.getPsramSize());
 
     // Load configuration from NVS
     configManager.load();
 
     // Check if configured
     if (!configManager.isConfigured()) {
-        Serial.println("\nDevice not configured!");
+        LOG_INFO("\nDevice not configured!");
         startConfigPortal();
         return;  // Portal will run in loop()
     }
@@ -309,10 +310,10 @@ void setup() {
     // Configuration exists - proceed with normal startup
     const ConfigManager::Config& config = configManager.getConfig();
 
-    Serial.printf("\nConfiguration loaded:");
-    Serial.printf("\n  Device: %s", config.deviceName);
-    Serial.printf("\n  WiFi: %s", config.wifiSsid);
-    Serial.printf("\n  MQTT: %s:%d\n", config.mqttServer, config.mqttPort);
+    LOG_INFO("\nConfiguration loaded:");
+    LOG_INFOF("  Device: %s", config.deviceName);
+    LOG_INFOF("  WiFi: %s", config.wifiSsid);
+    LOG_INFOF("  MQTT: %s:%d", config.mqttServer, config.mqttPort);
 
     // Connect WiFi using stored credentials
     wifiManager.setCredentials(config.wifiSsid, config.wifiPassword);
@@ -329,7 +330,7 @@ void setup() {
     // Initialize printer
     printer = new NelkoP21Printer();
     if (printer->connect()) {
-        Serial.println("Printer ready.");
+        LOG_INFO("Printer ready.");
     }
 }
 
@@ -338,7 +339,7 @@ void loop() {
     if (portalActive && configPortal != nullptr) {
         if (!configPortal->loop()) {
             // Timeout - restart device
-            Serial.println("Portal timeout, restarting...");
+            LOG_INFO("Portal timeout, restarting...");
             stopConfigPortal();
             delay(1000);
             ESP.restart();
@@ -346,7 +347,7 @@ void loop() {
 
         if (configPortal->wasConfigSaved()) {
             // Config saved - restart to apply
-            Serial.println("Configuration saved, restarting...");
+            LOG_INFO("Configuration saved, restarting...");
             stopConfigPortal();
             delay(2000);
             ESP.restart();

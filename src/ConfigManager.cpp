@@ -1,5 +1,6 @@
 #include "ConfigManager.h"
 #include "StringUtils.h"
+#include "Log.h"
 
 const char* ConfigManager::PREFS_NAMESPACE = "labelprinter";
 
@@ -53,7 +54,7 @@ void ConfigManager::generateDefaultTopics() {
 
 bool ConfigManager::load() {
     if (!_prefs.begin(PREFS_NAMESPACE, true)) {  // Read-only mode
-        Serial.println("Failed to open preferences for reading");
+        LOG_ERROR("Failed to open preferences for reading");
         return false;
     }
 
@@ -79,10 +80,10 @@ bool ConfigManager::load() {
         _prefs.getString("topicStatus", _config.mqttTopicStatus, sizeof(_config.mqttTopicStatus));
         _prefs.getString("topicResult", _config.mqttTopicResult, sizeof(_config.mqttTopicResult));
 
-        Serial.printf("Config loaded: WiFi=%s, MQTT=%s:%d\n",
+        LOG_INFOF("Config loaded: WiFi=%s, MQTT=%s:%d",
                       _config.wifiSsid, _config.mqttServer, _config.mqttPort);
     } else {
-        Serial.println("No configuration found");
+        LOG_INFO("No configuration found");
         setDefaults();
     }
 
@@ -98,7 +99,7 @@ bool ConfigManager::save() {
     generateDefaultTopics();
 
     if (!_prefs.begin(PREFS_NAMESPACE, false)) {  // Read-write mode
-        Serial.println("Failed to open preferences for writing");
+        LOG_ERROR("Failed to open preferences for writing");
         return false;
     }
 
@@ -127,14 +128,14 @@ bool ConfigManager::save() {
 
     _prefs.end();
 
-    Serial.printf("Config saved: WiFi=%s, MQTT=%s:%d\n",
+    LOG_INFOF("Config saved: WiFi=%s, MQTT=%s:%d",
                   _config.wifiSsid, _config.mqttServer, _config.mqttPort);
     return true;
 }
 
 void ConfigManager::clear() {
     if (!_prefs.begin(PREFS_NAMESPACE, false)) {
-        Serial.println("Failed to open preferences for clearing");
+        LOG_ERROR("Failed to open preferences for clearing");
         return;
     }
 
@@ -142,5 +143,5 @@ void ConfigManager::clear() {
     _prefs.end();
 
     memset(&_config, 0, sizeof(_config));
-    Serial.println("Configuration cleared");
+    LOG_INFO("Configuration cleared");
 }

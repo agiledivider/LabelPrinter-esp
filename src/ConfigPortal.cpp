@@ -1,5 +1,6 @@
 #include "ConfigPortal.h"
 #include "StringUtils.h"
+#include "Log.h"
 
 const char* ConfigPortal::AP_SSID = "LabelPrinter-Setup";
 
@@ -13,9 +14,9 @@ ConfigPortal::ConfigPortal(ConfigManager& configManager)
 }
 
 bool ConfigPortal::begin() {
-    Serial.println("\n========================================");
-    Serial.println("  Starting Configuration Portal");
-    Serial.println("========================================");
+    LOG_INFO("\n========================================");
+    LOG_INFO("  Starting Configuration Portal");
+    LOG_INFO("========================================");
 
     // Disconnect from any existing WiFi
     WiFi.disconnect(true);
@@ -24,13 +25,13 @@ bool ConfigPortal::begin() {
     // Start AP mode
     WiFi.mode(WIFI_AP);
     if (!WiFi.softAP(AP_SSID)) {
-        Serial.println("Failed to start AP!");
+        LOG_ERROR("Failed to start AP!");
         return false;
     }
 
     IPAddress apIP = WiFi.softAPIP();
-    Serial.printf("AP SSID: %s\n", AP_SSID);
-    Serial.printf("AP IP: %s\n", apIP.toString().c_str());
+    LOG_INFOF("AP SSID: %s", AP_SSID);
+    LOG_INFOF("AP IP: %s", apIP.toString().c_str());
 
     // Start DNS server for captive portal
     _dnsServer.start(DNS_PORT, "*", apIP);
@@ -41,15 +42,15 @@ bool ConfigPortal::begin() {
     _webServer.onNotFound([this]() { handleNotFound(); });
 
     _webServer.begin();
-    Serial.println("Web server started on port 80");
+    LOG_INFO("Web server started on port 80");
 
     _active = true;
     _configSaved = false;
     _startTime = millis();
 
-    Serial.println("\nConnect to WiFi network: LabelPrinter-Setup");
-    Serial.println("Then open http://192.168.4.1 in your browser");
-    Serial.println("Portal will timeout in 5 minutes\n");
+    LOG_INFO("\nConnect to WiFi network: LabelPrinter-Setup");
+    LOG_INFO("Then open http://192.168.4.1 in your browser");
+    LOG_INFO("Portal will timeout in 5 minutes\n");
 
     return true;
 }
@@ -63,7 +64,7 @@ void ConfigPortal::end() {
     WiFi.mode(WIFI_STA);
 
     _active = false;
-    Serial.println("Configuration portal stopped");
+    LOG_INFO("Configuration portal stopped");
 }
 
 bool ConfigPortal::loop() {
@@ -71,7 +72,7 @@ bool ConfigPortal::loop() {
 
     // Check timeout
     if (millis() - _startTime >= TIMEOUT_MS) {
-        Serial.println("Configuration portal timeout!");
+        LOG_ERROR("Configuration portal timeout!");
         return false;
     }
 
@@ -127,7 +128,7 @@ void ConfigPortal::handleSave() {
     if (_configManager.save()) {
         _configSaved = true;
         _webServer.send(200, "text/html", getSuccessPage());
-        Serial.println("Configuration saved successfully!");
+        LOG_INFO("Configuration saved successfully!");
     } else {
         _webServer.send(500, "text/html",
             "<html><body><h1>Error</h1>"

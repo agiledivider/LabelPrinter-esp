@@ -1,5 +1,6 @@
 #include "NelkoP21Printer.h"
 #include "TSPL2.h"
+#include "Log.h"
 
 // Static instance pointer for callback
 NelkoP21Printer* NelkoP21Printer::_instance = nullptr;
@@ -27,7 +28,7 @@ NelkoP21Printer::~NelkoP21Printer() {
 
 void NelkoP21Printer::btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t* param) {
     if (event == ESP_SPP_CLOSE_EVT && _instance) {
-        Serial.println("Printer disconnected!");
+        LOG_INFO("Printer disconnected!");
         _instance->_connected = false;
     }
 }
@@ -38,13 +39,13 @@ bool NelkoP21Printer::begin(const char* deviceName) {
     }
 
     if (!_serialBT.begin(deviceName, true)) {
-        Serial.println("Bluetooth error!");
+        LOG_ERROR("Bluetooth error!");
         return false;
     }
 
     _serialBT.register_callback(btCallback);
     _initialized = true;
-    Serial.println("Bluetooth initialized");
+    LOG_INFO("Bluetooth initialized");
     return true;
 }
 
@@ -89,11 +90,11 @@ void NelkoP21Printer::skipEcho(int echoLen, unsigned long timeoutMs) {
 }
 
 bool NelkoP21Printer::scanAndConnect() {
-    Serial.println("Scanning for Bluetooth devices...");
+    LOG_INFO("Scanning for Bluetooth devices...");
 
     BTScanResults* scanResults = _serialBT.discover(5000);
     if (!scanResults) {
-        Serial.println("Bluetooth scan failed! Trying restart...");
+        LOG_ERROR("Bluetooth scan failed! Trying restart...");
 
         // Restart Bluetooth
         _serialBT.disconnect();
@@ -103,7 +104,7 @@ bool NelkoP21Printer::scanAndConnect() {
         btStart();
 
         if (!_serialBT.begin("ESP32_LabelPrinter", true)) {
-            Serial.println("Bluetooth restart failed!");
+            LOG_ERROR("Bluetooth restart failed!");
             return false;
         }
 
@@ -113,13 +114,13 @@ bool NelkoP21Printer::scanAndConnect() {
         // Retry scan
         scanResults = _serialBT.discover(5000);
         if (!scanResults) {
-            Serial.println("Bluetooth scan failed again!");
+            LOG_ERROR("Bluetooth scan failed again!");
             return false;
         }
     }
 
     int count = scanResults->getCount();
-    Serial.printf("%d devices found:\n", count);
+    LOG_INFOF("%d devices found:", count);
 
     // List all devices
     for (int i = 0; i < count; i++) {
@@ -131,7 +132,7 @@ bool NelkoP21Printer::scanAndConnect() {
 
         uint8_t addr[6];
         memcpy(addr, device->getAddress().getNative(), 6);
-        Serial.printf("  [%d] %s (%02X:%02X:%02X:%02X:%02X:%02X)\n",
+        LOG_INFOF("  [%d] %s (%02X:%02X:%02X:%02X:%02X:%02X)",
             i, name.c_str(),
             addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
     }
@@ -144,13 +145,13 @@ bool NelkoP21Printer::scanAndConnect() {
         String name = device->getName().c_str();
         if (name.indexOf("P21") < 0 && name.indexOf("Nelko") < 0) continue;
 
-        Serial.printf("Connecting to printer: %s\n", name.c_str());
+        LOG_INFOF("Connecting to printer: %s", name.c_str());
 
         uint8_t addr[6];
         memcpy(addr, device->getAddress().getNative(), 6);
 
         if (_serialBT.connect(addr)) {
-            Serial.println("Printer connected!\n");
+            LOG_INFO("Printer connected!\n");
             _connected = true;
             _lastSeen = millis();
 
@@ -165,7 +166,7 @@ bool NelkoP21Printer::scanAndConnect() {
         }
     }
 
-    Serial.println("No printer found.");
+    LOG_ERROR("No printer found.");
     return false;
 }
 
@@ -182,7 +183,7 @@ void NelkoP21Printer::disconnect() {
     if (_connected) {
         _serialBT.disconnect();
         _connected = false;
-        Serial.println("Printer disconnected.");
+        LOG_INFO("Printer disconnected.");
     }
 }
 
@@ -216,21 +217,21 @@ int NelkoP21Printer::getBattery() {
 
             if (level >= 0 && level <= 100) {
                 _battery = level;
-                Serial.printf("Battery: %d%%\n", _battery);
+                LOG_INFOF("Battery: %d%%", _battery);
             } else {
-                Serial.printf("Battery raw: 0x%02X (%d)\n", raw, level);
+                LOG_DEBUGF("Battery raw: 0x%02X (%d)", raw, level);
             }
             return _battery;
         }
     }
 
-    Serial.println("Battery: no response");
+    LOG_DEBUG("Battery: no response");
     return _battery;
 }
 
 void NelkoP21Printer::queryConfig() {
     if (!_connected) {
-        Serial.println("Not connected!");
+        LOG_ERROR("Not connected!");
         return;
     }
 
@@ -250,84 +251,80 @@ void NelkoP21Printer::queryConfig() {
     while (_serialBT.available()) _serialBT.read();
 
     if (count < TSPL2::Response::CONFIG_SIZE) {
-        Serial.println("Config: (incomplete response)");
+        LOG_DEBUG("Config: (incomplete response)");
         return;
     }
 
     using namespace TSPL2::ConfigIndex;
-    Serial.println("=== Printer Configuration ===");
-    Serial.printf("  Protocol:     %s\n", config[PROTOCOL] == 0 ? "TSPL2" : "Unknown");
-    Serial.printf("  DPI:          %d\n", config[DPI]);
-    Serial.printf("  Hardware:     v%d.%d.%d\n", config[HW_MAJOR], config[HW_MINOR], config[HW_PATCH]);
-    Serial.printf("  Firmware:     v%d.%d.%d\n", config[FW_MAJOR], config[FW_MINOR], config[FW_PATCH]);
+    LOG_INFO("=== Printer Configuration ===");
+    LOG_INFOF("  Protocol:     %s", config[PROTOCOL] == 0 ? "TSPL2" : "Unknown");
+    LOG_INFOF("  DPI:          %d", config[DPI]);
+    LOG_INFOF("  Hardware:     v%d.%d.%d", config[HW_MAJOR], config[HW_MINOR], config[HW_PATCH]);
+    LOG_INFOF("  Firmware:     v%d.%d.%d", config[FW_MAJOR], config[FW_MINOR], config[FW_PATCH]);
 
     const char* timeouts[] = {"Never", "15 min", "30 min", "60 min"};
     int timeoutIdx = config[AUTO_OFF] < 4 ? config[AUTO_OFF] : 0;
-    Serial.printf("  Auto-Off:     %s\n", timeouts[timeoutIdx]);
-    Serial.printf("  Beep:         %s\n", config[BEEP] ? "On" : "Off");
+    LOG_INFOF("  Auto-Off:     %s", timeouts[timeoutIdx]);
+    LOG_INFOF("  Beep:         %s", config[BEEP] ? "On" : "Off");
 
     // Raw hex dump
-    Serial.print("  Raw:          ");
-    for (int i = 0; i < TSPL2::Response::CONFIG_SIZE; i++) {
-        Serial.printf("%02X ", config[i]);
-    }
-    Serial.println();
-    Serial.println("=============================");
+    LOG_RAW("  Raw:          ");
+    LOG_HEX(config, TSPL2::Response::CONFIG_SIZE);
+    LOG_INFO("");
+    LOG_INFO("=============================");
 }
 
 void NelkoP21Printer::queryStatus() {
     if (!_connected) {
-        Serial.println("Not connected!");
+        LOG_ERROR("Not connected!");
         return;
     }
 
     clearBuffer();
-    Serial.println("Clearing buffer...done.\r\n");
+    LOG_DEBUG("Clearing buffer...done.");
 
     // Send status query (ESC!o)
     _serialBT.print(TSPL2::Query::STATUS);
 
     // Read response
     uint8_t response[TSPL2::Response::STATUS_SIZE];
-    Serial.println("Response...");
+    LOG_DEBUG("Response...");
     int count = readWithTimeout(response, TSPL2::Response::STATUS_SIZE, TSPL2::Timeout::STATUS);
     for (int i = 0; i < count; i++) {
-        Serial.print(response[i]);
+        LOG_RAWF("%d ", response[i]);
     }
-    Serial.println("\r\n...done.\r\n");
+    LOG_DEBUG("...done.");
 
     // Discard rest
-    Serial.println("Discarding rest...");
+    LOG_DEBUG("Discarding rest...");
     while (_serialBT.available()) {
-        Serial.print(_serialBT.read());
+        LOG_RAWF("%d ", _serialBT.read());
     }
-    Serial.println("...done.\r\n");
+    LOG_DEBUG("...done.");
 
     if (count < 1) {
-        Serial.println("Status: (no response)");
+        LOG_DEBUG("Status: (no response)");
         return;
     }
 
-    Serial.println("=== Printer Status ===");
+    LOG_INFO("=== Printer Status ===");
 
     if (response[0] == TSPL2::Status::OK) {
-        Serial.println("  Status:       OK");
+        LOG_INFO("  Status:       OK");
         if (count >= 14) {
-            Serial.printf("  Paper:        %d x %d mm\n", response[13], response[11]);
+            LOG_INFOF("  Paper:        %d x %d mm", response[13], response[11]);
         }
     } else if (response[0] == TSPL2::Status::NO_PAPER) {
-        Serial.println("  Status:       ERROR - No paper!");
+        LOG_ERROR("  Status:       ERROR - No paper!");
     } else {
-        Serial.printf("  Status:       Unknown (0x%02X)\n", response[0]);
+        LOG_INFOF("  Status:       Unknown (0x%02X)", response[0]);
     }
 
     // Raw hex dump
-    Serial.print("  Raw:          ");
-    for (int i = 0; i < count; i++) {
-        Serial.printf("%02X ", response[i]);
-    }
-    Serial.println();
-    Serial.println("======================");
+    LOG_RAW("  Raw:          ");
+    LOG_HEX(response, count);
+    LOG_INFO("");
+    LOG_INFO("======================");
 }
 
 const char* NelkoP21Printer::checkReady() {
@@ -348,11 +345,9 @@ const char* NelkoP21Printer::checkReady() {
     uint8_t response[TSPL2::Response::STATUS_SIZE];
     int count = readWithTimeout(response, TSPL2::Response::STATUS_SIZE, TSPL2::Timeout::QUERY);
 
-    Serial.print("Response (Hex): ");
-    for (int i = 0; i < TSPL2::Response::STATUS_SIZE; i++) {
-        Serial.printf("%02X ", response[i]);
-    }
-    Serial.println();
+    LOG_RAW("Response (Hex): ");
+    LOG_HEX(response, TSPL2::Response::STATUS_SIZE);
+    LOG_INFO("");
 
     // Discard rest
     while (_serialBT.available()) _serialBT.read();
@@ -363,7 +358,7 @@ const char* NelkoP21Printer::checkReady() {
         } else if (response[0] == TSPL2::Status::NO_PAPER) {
             return "no paper";
         } else {
-            Serial.printf("Unknown status: 0x%02X\n", response[0]);
+            LOG_DEBUGF("Unknown status: 0x%02X", response[0]);
             return nullptr;  // Unknown but continue
         }
     }
@@ -374,7 +369,7 @@ const char* NelkoP21Printer::checkReady() {
 
 void NelkoP21Printer::sendBitmap(const uint8_t* bitmap) {
     if (!_connected) {
-        Serial.println("Printer not connected!");
+        LOG_ERROR("Printer not connected!");
         return;
     }
 
@@ -394,37 +389,37 @@ void NelkoP21Printer::sendBitmap(const uint8_t* bitmap) {
 
 void NelkoP21Printer::sendCommand(const char* cmd) {
     if (!_connected) {
-        Serial.println("Not connected!");
+        LOG_ERROR("Not connected!");
         return;
     }
 
     clearBuffer();
 
-    Serial.printf("Sending: %s\n", cmd);
+    LOG_DEBUGF("Sending: %s", cmd);
     _serialBT.print(cmd);
     _serialBT.print("\r\n");
     delay(TSPL2::Timeout::QUERY);
 
-    Serial.print("Response: ");
+    LOG_RAW("Response: ");
     bool gotData = false;
     unsigned long start = millis();
     while (millis() - start < TSPL2::Timeout::COMMAND) {
         if (_serialBT.available()) {
             uint8_t c = _serialBT.read();
-            Serial.printf("[0x%02X '%c'] ", c, (c >= 32 && c < 127) ? c : '.');
+            LOG_RAWF("[0x%02X '%c'] ", c, (c >= 32 && c < 127) ? c : '.');
             gotData = true;
         }
     }
     if (!gotData) {
-        Serial.print("(none)");
+        LOG_RAW("(none)");
     }
-    Serial.println();
+    LOG_INFO("");
 }
 
 void NelkoP21Printer::processIncoming() {
     if (_connected && _serialBT.available()) {
         while (_serialBT.available()) {
-            Serial.print((char)_serialBT.read());
+            LOG_RAWF("%c", (char)_serialBT.read());
         }
     }
 }

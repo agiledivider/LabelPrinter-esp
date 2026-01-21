@@ -32,6 +32,14 @@ Created `TSPL2.h` namespace with protocol constants.
 - Response sizes, timeouts, config byte indices
 - Bitmap header format and print command
 
+### 6. Create Logging Abstraction ✅
+Created `Log.h` with level-based logging macros.
+- `LOG_ERROR` / `LOG_ERRORF` - Error messages (level >= 1)
+- `LOG_INFO` / `LOG_INFOF` - Info messages (level >= 2)
+- `LOG_DEBUG` / `LOG_DEBUGF` - Debug messages (level >= 3)
+- `LOG_RAW` / `LOG_RAWF` / `LOG_HEX` - Raw output (always enabled)
+- Replaced 152 `Serial.print*` calls across 6 files
+
 ---
 
 ## Remaining
@@ -93,16 +101,7 @@ enum class PrintError {
 };
 ```
 
-### 9. Create Logging Abstraction (All files)
-Direct `Serial.println()` scattered everywhere.
-
-```cpp
-#define LOG_INFO(msg) Serial.println(msg)
-#define LOG_ERROR(msg) Serial.printf("[ERROR] %s\n", msg)
-#define LOG_DEBUG(fmt, ...) Serial.printf("[DEBUG] " fmt "\n", ##__VA_ARGS__)
-```
-
-### 10. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
+### 9. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
 Raw pointers with manual memory management.
 
 ```cpp
@@ -118,10 +117,9 @@ std::unique_ptr<uint8_t[]> _bitmap;
 ---
 
 ## Priority Order (Suggested)
-1. #9 - Create logging abstraction (enables future log levels)
-2. #8 - Add error enum (type safety)
-3. #6 - Move printFrame to LabelImage (better encapsulation)
-4. #5 - Extract JSON building (reduces duplication)
-5. #7 - Extract HTML to PROGMEM (saves RAM)
-6. #4 - Remove singleton (architectural improvement)
-7. #10 - Smart pointers (modern C++, but may have ESP32 limitations)
+1. #8 - Add error enum (type safety)
+2. #6 - Move printFrame to LabelImage (better encapsulation)
+3. #5 - Extract JSON building (reduces duplication)
+4. #7 - Extract HTML to PROGMEM (saves RAM)
+5. #4 - Remove singleton (architectural improvement)
+6. #9 - Smart pointers (modern C++, but may have ESP32 limitations)

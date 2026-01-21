@@ -1,6 +1,7 @@
 #include "MqttManager.h"
 #include "WiFiManager.h"
 #include "StringUtils.h"
+#include "Log.h"
 
 MqttManager::MqttManager()
     : _wifiManager(nullptr)
@@ -54,10 +55,10 @@ bool MqttManager::connect() {
     if (_useSsl) {
         _wifiClientSecure.setInsecure();
         _mqttClient.setClient(_wifiClientSecure);
-        Serial.printf("Connecting to MQTT (SSL) %s:%d...\n", _server, _port);
+        LOG_INFOF("Connecting to MQTT (SSL) %s:%d...", _server, _port);
     } else {
         _mqttClient.setClient(_wifiClient);
-        Serial.printf("Connecting to MQTT %s:%d...\n", _server, _port);
+        LOG_INFOF("Connecting to MQTT %s:%d...", _server, _port);
     }
 
     _mqttClient.setServer(_server, _port);
@@ -69,14 +70,14 @@ bool MqttManager::connect() {
 
     // Connect with credentials
     if (_mqttClient.connect(_clientId, _user, _password)) {
-        Serial.println("MQTT connected!");
+        LOG_INFO("MQTT connected!");
         _mqttClient.subscribe(_topicPrint);
-        Serial.printf("Subscribed: %s\n", _topicPrint);
+        LOG_INFOF("Subscribed: %s", _topicPrint);
         _connected = true;
         return true;
     }
 
-    Serial.printf("MQTT error: %d\n", _mqttClient.state());
+    LOG_ERRORF("MQTT error: %d", _mqttClient.state());
     _connected = false;
     return false;
 }
@@ -84,7 +85,7 @@ bool MqttManager::connect() {
 void MqttManager::disconnect() {
     _mqttClient.disconnect();
     _connected = false;
-    Serial.println("MQTT disconnected.");
+    LOG_INFO("MQTT disconnected.");
 }
 
 bool MqttManager::publish(const char* topic, const char* payload) {
