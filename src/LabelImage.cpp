@@ -33,7 +33,8 @@ void LabelImage::setPixel(int x, int y) {
 }
 
 void LabelImage::drawTextLine(const char* start, int charCount, int y) {
-    int textWidth = charCount * 6 - 1;  // 5 Pixel + 1 Pixel Abstand
+    using namespace LabelLayout;
+    int textWidth = charCount * CHAR_WIDTH - CHAR_SPACING;
     int startX = (_width - textWidth) / 2;
     if (startX < 0) startX = 0;
 
@@ -41,11 +42,11 @@ void LabelImage::drawTextLine(const char* start, int charCount, int y) {
     for (int charIndex = 0; charIndex < charCount && *ptr; charIndex++) {
         const uint8_t* glyph = getGlyph(&ptr);
 
-        for (int col = 0; col < 5; col++) {
+        for (int col = 0; col < GLYPH_WIDTH; col++) {
             uint8_t colData = pgm_read_byte(&glyph[col]);
-            for (int row = 0; row < 7; row++) {
+            for (int row = 0; row < GLYPH_HEIGHT; row++) {
                 if (colData & (1 << row)) {
-                    setPixel(startX + charIndex * 6 + col, y + row);
+                    setPixel(startX + charIndex * CHAR_WIDTH + col, y + row);
                 }
             }
         }
@@ -53,7 +54,8 @@ void LabelImage::drawTextLine(const char* start, int charCount, int y) {
 }
 
 void LabelImage::drawTextLineScaled(const char* start, int charCount, int y, int scale) {
-    int charWidth = 5 * scale + scale;  // 5 Pixel * scale + spacing
+    using namespace LabelLayout;
+    int charWidth = GLYPH_WIDTH * scale + scale;  // Glyph width * scale + spacing
     int textWidth = charCount * charWidth - scale;
     int startX = (_width - textWidth) / 2;
     if (startX < 0) startX = 0;
@@ -62,9 +64,9 @@ void LabelImage::drawTextLineScaled(const char* start, int charCount, int y, int
     for (int charIndex = 0; charIndex < charCount && *ptr; charIndex++) {
         const uint8_t* glyph = getGlyph(&ptr);
 
-        for (int col = 0; col < 5; col++) {
+        for (int col = 0; col < GLYPH_WIDTH; col++) {
             uint8_t colData = pgm_read_byte(&glyph[col]);
-            for (int row = 0; row < 7; row++) {
+            for (int row = 0; row < GLYPH_HEIGHT; row++) {
                 if (colData & (1 << row)) {
                     for (int sy = 0; sy < scale; sy++) {
                         for (int sx = 0; sx < scale; sx++) {
@@ -79,14 +81,13 @@ void LabelImage::drawTextLineScaled(const char* start, int charCount, int y, int
 }
 
 int LabelImage::drawTextCentered(const char* text, int y) {
-    const int MAX_LINES = 10;
-    const int CHARS_PER_LINE = _width / 6;
-    const int LINE_HEIGHT = 9;
+    using namespace LabelLayout;
+    const int CHARS_PER_LINE = _width / CHAR_WIDTH;
 
     int lineCount = 0;
     const char* ptr = text;
 
-    while (*ptr && lineCount < MAX_LINES) {
+    while (*ptr && lineCount < MAX_TEXT_LINES) {
         const char* lineStart = ptr;
         const char* lastSpace = nullptr;
         int charCount = 0;
@@ -150,7 +151,7 @@ bool LabelImage::drawQRCode(const char* data, int y, QRSize size, int* outHeight
 }
 
 void LabelImage::drawLogo(int y) {
-    // Logo zentrieren (50px Logo auf 96px Label)
+    // Center logo horizontally
     int logoX = (_width - MSB_LOGO_WIDTH) / 2;
 
     for (int ly = 0; ly < MSB_LOGO_HEIGHT; ly++) {
@@ -159,7 +160,7 @@ void LabelImage::drawLogo(int y) {
             int bitIdx = 7 - (lx % 8);
             uint8_t pixel = pgm_read_byte(&msbLogo[byteIdx]);
 
-            // Logo Daten sind invertiert: 1 = weiss, 0 = schwarz
+            // Logo data is inverted: 1 = white, 0 = black
             if (!(pixel & (1 << bitIdx))) {
                 setPixel(logoX + lx, y + ly);
             }
@@ -168,6 +169,7 @@ void LabelImage::drawLogo(int y) {
 }
 
 bool LabelImage::generate(const char* link, const char* name, const char* id, QRSize qrSize) {
+    using namespace LabelLayout;
     _error = nullptr;
 
     if (!_bitmap) {
@@ -182,34 +184,32 @@ bool LabelImage::generate(const char* link, const char* name, const char* id, QR
 
     clear();
 
-    // Layout
-    int qrY = 10;
+    // Layout: QR code at top with margin
+    int qrY = QR_TOP_MARGIN;
     int qrHeight = 0;
 
     if (!drawQRCode(link, qrY, qrSize, &qrHeight)) {
-        // _error wird in drawQRCode gesetzt
+        // _error is set in drawQRCode
         if (!_error) {
             _error = "QR code generation failed";
         }
         return false;
     }
 
-    int idY = qrY + qrHeight + 10;
-    int nameY = idY + 22;
+    // ID below QR code
+    int idY = qrY + qrHeight + QR_BOTTOM_MARGIN;
+    // Name below ID
+    int nameY = idY + ID_HEIGHT + ID_BOTTOM_MARGIN;
 
-    // Text zeichnen
-    drawTextScaled(id, idY, 2);
+    // Draw text elements
+    drawTextScaled(id, idY, ID_SCALE);
     int textLines = drawTextCentered(name, nameY);
 
-    // Logo Position berechnen (nach Text, mit Abstand)
-    const int LINE_HEIGHT = 9;
-    const int ID_HEIGHT = 14;  // 7 * 2 (scale)
+    // Calculate logo position (below text with margin)
     int textEndY = nameY + textLines * LINE_HEIGHT;
+    int logoY = textEndY + LOGO_TOP_MARGIN;
 
-    // Logo am unteren Ende, mindestens 10px nach Text
-    int logoY = textEndY + 10;
-
-    // Sicherstellen, dass Logo aufs Label passt
+    // Only draw logo if it fits on the label
     if (logoY + MSB_LOGO_HEIGHT <= _height) {
         drawLogo(logoY);
     }
@@ -217,7 +217,7 @@ bool LabelImage::generate(const char* link, const char* name, const char* id, QR
     return true;
 }
 
-// Base64 Encoding Tabelle
+// Base64 encoding table
 static const char base64Chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 static void base64Encode(const uint8_t* data, int len, char* out) {
@@ -239,16 +239,16 @@ static void base64Encode(const uint8_t* data, int len, char* out) {
 char* LabelImage::toDataURL() const {
     if (!_bitmap) return nullptr;
 
-    // BMP Struktur fuer 1-bit Monochrom
-    // Row padding: jede Zeile muss auf 4 Bytes ausgerichtet sein
+    // BMP structure for 1-bit monochrome
+    // Row padding: each row must be aligned to 4 bytes
     int rowPadding = (4 - (_bytesPerRow % 4)) % 4;
     int paddedRowSize = _bytesPerRow + rowPadding;
     int pixelDataSize = paddedRowSize * _height;
 
-    // BMP Header Groessen
+    // BMP header sizes
     const int fileHeaderSize = 14;
     const int infoHeaderSize = 40;
-    const int colorTableSize = 8;  // 2 Farben * 4 Bytes
+    const int colorTableSize = 8;  // 2 colors * 4 bytes
     int bmpSize = fileHeaderSize + infoHeaderSize + colorTableSize + pixelDataSize;
 
     uint8_t* bmp = (uint8_t*)malloc(bmpSize);
@@ -279,16 +279,16 @@ char* LabelImage::toDataURL() const {
     bmp[36] = (pixelDataSize >> 16) & 0xFF;
     bmp[37] = (pixelDataSize >> 24) & 0xFF;
 
-    // Color Table (schwarz und weiss)
-    bmp[54] = 0x00; bmp[55] = 0x00; bmp[56] = 0x00; bmp[57] = 0x00;  // Schwarz
-    bmp[58] = 0xFF; bmp[59] = 0xFF; bmp[60] = 0xFF; bmp[61] = 0x00;  // Weiss
+    // Color table (black and white)
+    bmp[54] = 0x00; bmp[55] = 0x00; bmp[56] = 0x00; bmp[57] = 0x00;  // Black
+    bmp[58] = 0xFF; bmp[59] = 0xFF; bmp[60] = 0xFF; bmp[61] = 0x00;  // White
 
-    // Pixel-Daten (BMP speichert von unten nach oben)
+    // Pixel data (BMP stores bottom-up)
     uint8_t* pixelData = bmp + dataOffset;
     for (int y = 0; y < _height; y++) {
-        int srcY = _height - 1 - y;  // BMP ist bottom-up
+        int srcY = _height - 1 - y;  // BMP is bottom-up
         for (int x = 0; x < _bytesPerRow; x++) {
-            // Bits invertieren: im Bitmap ist 0=schwarz, in BMP ist 0=erste Farbe (schwarz)
+            // Copy pixel data (0=black in both formats)
             pixelData[y * paddedRowSize + x] = _bitmap[srcY * _bytesPerRow + x];
         }
     }
