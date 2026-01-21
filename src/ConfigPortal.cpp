@@ -1,4 +1,5 @@
 #include "ConfigPortal.h"
+#include "StringUtils.h"
 
 const char* ConfigPortal::AP_SSID = "LabelPrinter-Setup";
 
@@ -110,17 +111,17 @@ void ConfigPortal::handleSave() {
     // Update configuration
     ConfigManager::Config& config = _configManager.getConfigMutable();
 
-    strncpy(config.wifiSsid, wifiSsid.c_str(), sizeof(config.wifiSsid) - 1);
-    strncpy(config.wifiPassword, wifiPassword.c_str(), sizeof(config.wifiPassword) - 1);
-    strncpy(config.deviceName, deviceName.c_str(), sizeof(config.deviceName) - 1);
-    strncpy(config.mqttServer, mqttServer.c_str(), sizeof(config.mqttServer) - 1);
+    safeCopy(config.wifiSsid, wifiSsid.c_str(), sizeof(config.wifiSsid));
+    safeCopy(config.wifiPassword, wifiPassword.c_str(), sizeof(config.wifiPassword));
+    safeCopy(config.deviceName, deviceName.c_str(), sizeof(config.deviceName));
+    safeCopy(config.mqttServer, mqttServer.c_str(), sizeof(config.mqttServer));
     config.mqttPort = mqttPort.isEmpty() ? 1883 : mqttPort.toInt();
-    strncpy(config.mqttUser, mqttUser.c_str(), sizeof(config.mqttUser) - 1);
-    strncpy(config.mqttPassword, mqttPassword.c_str(), sizeof(config.mqttPassword) - 1);
+    safeCopy(config.mqttUser, mqttUser.c_str(), sizeof(config.mqttUser));
+    safeCopy(config.mqttPassword, mqttPassword.c_str(), sizeof(config.mqttPassword));
     config.mqttUseSsl = (mqttSsl == "on" || mqttSsl == "1");
-    strncpy(config.mqttTopicPrint, topicPrint.c_str(), sizeof(config.mqttTopicPrint) - 1);
-    strncpy(config.mqttTopicStatus, topicStatus.c_str(), sizeof(config.mqttTopicStatus) - 1);
-    strncpy(config.mqttTopicResult, topicResult.c_str(), sizeof(config.mqttTopicResult) - 1);
+    safeCopy(config.mqttTopicPrint, topicPrint.c_str(), sizeof(config.mqttTopicPrint));
+    safeCopy(config.mqttTopicStatus, topicStatus.c_str(), sizeof(config.mqttTopicStatus));
+    safeCopy(config.mqttTopicResult, topicResult.c_str(), sizeof(config.mqttTopicResult));
 
     // Save to NVS
     if (_configManager.save()) {

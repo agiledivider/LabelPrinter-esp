@@ -1,5 +1,5 @@
 #include "WiFiManager.h"
-#include <cstring>
+#include "StringUtils.h"
 
 WiFiManager::WiFiManager()
     : _networks(nullptr)
@@ -20,12 +20,8 @@ void WiFiManager::begin(const char* networks[][2], int networkCount) {
 }
 
 void WiFiManager::setCredentials(const char* ssid, const char* password) {
-    strncpy(_singleSsid, ssid, sizeof(_singleSsid) - 1);
-    _singleSsid[sizeof(_singleSsid) - 1] = '\0';
-
-    strncpy(_singlePassword, password, sizeof(_singlePassword) - 1);
-    _singlePassword[sizeof(_singlePassword) - 1] = '\0';
-
+    safeCopy(_singleSsid, ssid, sizeof(_singleSsid));
+    safeCopy(_singlePassword, password, sizeof(_singlePassword));
     _useSingleCredentials = true;
     _networks = nullptr;
     _networkCount = 0;

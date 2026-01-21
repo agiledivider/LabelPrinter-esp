@@ -1,5 +1,5 @@
 #include "ConfigManager.h"
-#include <cstring>
+#include "StringUtils.h"
 
 const char* ConfigManager::PREFS_NAMESPACE = "labelprinter";
 
@@ -10,12 +10,12 @@ ConfigManager::ConfigManager() {
 void ConfigManager::setDefaults() {
     // Default device name
     if (strlen(_config.deviceName) == 0) {
-        strncpy(_config.deviceName, "LabelPrinter", sizeof(_config.deviceName) - 1);
+        safeCopy(_config.deviceName, "LabelPrinter", sizeof(_config.deviceName));
     }
 
     // Default MQTT settings
     if (strlen(_config.mqttServer) == 0) {
-        strncpy(_config.mqttServer, "status.makerspacebonn.de", sizeof(_config.mqttServer) - 1);
+        safeCopy(_config.mqttServer, "status.makerspacebonn.de", sizeof(_config.mqttServer));
     }
     if (_config.mqttPort == 0) {
         _config.mqttPort = 1883;
@@ -25,8 +25,7 @@ void ConfigManager::setDefaults() {
 void ConfigManager::generateDefaultTopics() {
     // Generate topics based on device name (lowercase, no spaces)
     char baseName[33];
-    strncpy(baseName, _config.deviceName, sizeof(baseName) - 1);
-    baseName[sizeof(baseName) - 1] = '\0';
+    safeCopy(baseName, _config.deviceName, sizeof(baseName));
 
     // Convert to lowercase and replace spaces with underscores
     for (int i = 0; baseName[i]; i++) {

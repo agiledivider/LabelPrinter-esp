@@ -1,6 +1,6 @@
 #include "MqttManager.h"
 #include "WiFiManager.h"
-#include <cstring>
+#include "StringUtils.h"
 
 MqttManager::MqttManager()
     : _wifiManager(nullptr)
@@ -26,31 +26,18 @@ void MqttManager::begin(WiFiManager& wifiManager) {
 
 void MqttManager::setConfig(const char* server, uint16_t port, bool useSsl,
                             const char* user, const char* password, const char* clientId) {
-    strncpy(_server, server, sizeof(_server) - 1);
-    _server[sizeof(_server) - 1] = '\0';
-
+    safeCopy(_server, server, sizeof(_server));
     _port = port;
     _useSsl = useSsl;
-
-    strncpy(_user, user, sizeof(_user) - 1);
-    _user[sizeof(_user) - 1] = '\0';
-
-    strncpy(_password, password, sizeof(_password) - 1);
-    _password[sizeof(_password) - 1] = '\0';
-
-    strncpy(_clientId, clientId, sizeof(_clientId) - 1);
-    _clientId[sizeof(_clientId) - 1] = '\0';
+    safeCopy(_user, user, sizeof(_user));
+    safeCopy(_password, password, sizeof(_password));
+    safeCopy(_clientId, clientId, sizeof(_clientId));
 }
 
 void MqttManager::setTopics(const char* printTopic, const char* statusTopic, const char* resultTopic) {
-    strncpy(_topicPrint, printTopic, sizeof(_topicPrint) - 1);
-    _topicPrint[sizeof(_topicPrint) - 1] = '\0';
-
-    strncpy(_topicStatus, statusTopic, sizeof(_topicStatus) - 1);
-    _topicStatus[sizeof(_topicStatus) - 1] = '\0';
-
-    strncpy(_topicResult, resultTopic, sizeof(_topicResult) - 1);
-    _topicResult[sizeof(_topicResult) - 1] = '\0';
+    safeCopy(_topicPrint, printTopic, sizeof(_topicPrint));
+    safeCopy(_topicStatus, statusTopic, sizeof(_topicStatus));
+    safeCopy(_topicResult, resultTopic, sizeof(_topicResult));
 }
 
 void MqttManager::setCallback(MqttMessageCallback callback) {
