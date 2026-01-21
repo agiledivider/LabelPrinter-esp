@@ -4,88 +4,56 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "config.h"
+#include "ConfigManager.h"
+#include "ConfigPortal.h"
 #include "LabelImage.h"
 #include "QRCodeRenderer.h"
 #include "Printer.h"
 #include "NelkoP21Printer.h"
+#include "WiFiManager.h"
 
 // ============================================================
-// Globale Objekte
+// Global Objects
 // ============================================================
 
-// Printer abstraction - can be swapped for different implementations
+ConfigManager configManager;
+ConfigPortal* configPortal = nullptr;
+
 Printer* printer = nullptr;
-
+WiFiManager wifiManager;
 WiFiClient wifiClient;
 WiFiClientSecure wifiClientSecure;
 PubSubClient mqttClient;
 
-bool wifiConnected = false;
 bool mqttConnected = false;
+bool portalActive = false;
 
 // ============================================================
-// WiFi-Funktionen
+// Print Functions
 // ============================================================
 
-void connectWiFi() {
-    Serial.println("Verbinde mit WiFi...");
-
-    for (int i = 0; i < wifiNetworkCount; i++) {
-        Serial.printf("Versuche: %s\n", wifiNetworks[i][0]);
-        WiFi.begin(wifiNetworks[i][0], wifiNetworks[i][1]);
-
-        int attempts = 0;
-        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-            delay(500);
-            Serial.print(".");
-            attempts++;
-        }
-
-        if (WiFi.status() == WL_CONNECTED) {
-            Serial.printf("\nVerbunden mit %s\n", wifiNetworks[i][0]);
-            Serial.printf("IP: %s\n", WiFi.localIP().toString().c_str());
-            wifiConnected = true;
-            return;
-        }
-        Serial.println(" fehlgeschlagen");
-    }
-
-    Serial.println("Kein WiFi-Netzwerk erreichbar!");
-    wifiConnected = false;
-}
-
-// ============================================================
-// Druck-Funktionen
-// ============================================================
-
-// Gibt nullptr bei Erfolg zurück, sonst Fehlermeldung
-// qrSize: "S", "M" oder "L" (default: "L")
 const char* printLabel(const char* link, const char* name, const char* id, const char* qrSize = nullptr) {
     if (!printer || !printer->isConnected()) {
         Serial.println("Drucker nicht verbunden!");
         return "printer not connected";
     }
 
-    // Drucker-Status prüfen (Papier, etc.)
     const char* statusError = printer->checkReady();
     if (statusError) {
         Serial.printf("Drucker-Fehler: %s\n", statusError);
         return statusError;
     }
 
-    // QR-Code Groesse parsen (Default: Large)
     QRSize size = QRCodeRenderer::sizeFromString(qrSize);
     const char* sizeStr = (size == QRSize::Small) ? "S" : (size == QRSize::Medium) ? "M" : "L";
     Serial.printf("Drucke Label: %s / %s (QR: %s)\n", name, id, sizeStr);
 
-    // Label-Bild generieren (use printer's label dimensions)
     LabelImage label(printer->getLabelWidth(), printer->getLabelHeight());
     if (!label.generate(link, name, id, size)) {
         Serial.printf("Label-Fehler: %s\n", label.getError());
         return label.getError();
     }
 
-    // Debug: Base64 Data-URL ausgeben (klickbar im Browser)
     char* dataUrl = label.toDataURL();
     if (dataUrl) {
         Serial.println("Label-Vorschau:");
@@ -93,10 +61,9 @@ const char* printLabel(const char* link, const char* name, const char* id, const
         free(dataUrl);
     }
 
-    // Senden
     printer->sendBitmap(label.getData());
     Serial.println("Label gesendet!");
-    return nullptr;  // Erfolg
+    return nullptr;
 }
 
 void printFrame() {
@@ -127,11 +94,13 @@ void printFrame() {
 }
 
 // ============================================================
-// MQTT-Funktionen
+// MQTT Functions
 // ============================================================
 
 void sendResult(const char* printId, bool success, const char* error = nullptr) {
     if (!mqttConnected) return;
+
+    const ConfigManager::Config& config = configManager.getConfig();
 
     JsonDocument doc;
     if (printId && strlen(printId) > 0) {
@@ -144,7 +113,7 @@ void sendResult(const char* printId, bool success, const char* error = nullptr) 
 
     char buffer[256];
     serializeJson(doc, buffer);
-    mqttClient.publish(mqttTopicResult, buffer);
+    mqttClient.publish(config.mqttTopicResult, buffer);
     Serial.printf("Result gesendet: %s\n", buffer);
 }
 
@@ -164,31 +133,33 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     const char* link = doc["link"] | "";
     const char* name = doc["name"] | "";
     const char* id = doc["id"] | "";
-    const char* size = doc["size"] | "L";  // QR-Code Groesse: S, M, L (Default: L)
+    const char* size = doc["size"] | "L";
 
     const char* error = printLabel(link, name, id, size);
     sendResult(printId, error == nullptr, error);
 }
 
 void connectMQTT() {
-    if (!wifiConnected) return;
+    if (!wifiManager.isConnected()) return;
 
-    if (mqttUseSsl) {
-        wifiClientSecure.setInsecure();  // Skip certificate verification
+    const ConfigManager::Config& config = configManager.getConfig();
+
+    if (config.mqttUseSsl) {
+        wifiClientSecure.setInsecure();
         mqttClient.setClient(wifiClientSecure);
-        Serial.printf("Verbinde mit MQTT (SSL) %s:%d...\n", mqttServer, mqttPort);
+        Serial.printf("Verbinde mit MQTT (SSL) %s:%d...\n", config.mqttServer, config.mqttPort);
     } else {
         mqttClient.setClient(wifiClient);
-        Serial.printf("Verbinde mit MQTT %s:%d...\n", mqttServer, mqttPort);
+        Serial.printf("Verbinde mit MQTT %s:%d...\n", config.mqttServer, config.mqttPort);
     }
 
-    mqttClient.setServer(mqttServer, mqttPort);
+    mqttClient.setServer(config.mqttServer, config.mqttPort);
     mqttClient.setCallback(mqttCallback);
 
-    if (mqttClient.connect(mqttClientId, mqttUser, mqttPassword)) {
+    if (mqttClient.connect(config.deviceName, config.mqttUser, config.mqttPassword)) {
         Serial.println("MQTT verbunden!");
-        mqttClient.subscribe(mqttTopicPrint);
-        Serial.printf("Subscribed: %s\n", mqttTopicPrint);
+        mqttClient.subscribe(config.mqttTopicPrint);
+        Serial.printf("Subscribed: %s\n", config.mqttTopicPrint);
         mqttConnected = true;
     } else {
         Serial.printf("MQTT Fehler: %d\n", mqttClient.state());
@@ -197,46 +168,19 @@ void connectMQTT() {
 }
 
 unsigned long lastMqttRetry = 0;
-const unsigned long MQTT_RETRY_INTERVAL = 10000;  // 10 Sekunden zwischen Verbindungsversuchen
-int dnsFailCount = 0;
-const int DNS_FAIL_RECONNECT_THRESHOLD = 3;  // Nach 3 DNS-Fehlern WiFi neu verbinden
-
-bool checkDns(const char* hostname) {
-    IPAddress ip;
-    if (WiFi.hostByName(hostname, ip)) {
-        dnsFailCount = 0;
-        return true;
-    }
-
-    dnsFailCount++;
-    Serial.printf("DNS fehlgeschlagen fuer %s (%d/%d)\n", hostname, dnsFailCount, DNS_FAIL_RECONNECT_THRESHOLD);
-
-    if (dnsFailCount >= DNS_FAIL_RECONNECT_THRESHOLD) {
-        Serial.println("Zu viele DNS-Fehler, WiFi wird neu verbunden...");
-        dnsFailCount = 0;
-        WiFi.disconnect();
-        wifiConnected = false;
-        delay(1000);
-        while (!wifiConnected) {
-            connectWiFi();
-            if (!wifiConnected) {
-                Serial.println("WiFi fehlgeschlagen, neuer Versuch in 5 Sekunden...");
-                delay(5000);
-            }
-        }
-    }
-    return false;
-}
+const unsigned long MQTT_RETRY_INTERVAL = 10000;
 
 void checkMQTT() {
-    if (!wifiConnected) return;
+    if (!wifiManager.isConnected()) return;
+
+    const ConfigManager::Config& config = configManager.getConfig();
 
     if (!mqttClient.connected()) {
         mqttConnected = false;
         unsigned long now = millis();
         if (now - lastMqttRetry >= MQTT_RETRY_INTERVAL) {
             lastMqttRetry = now;
-            if (checkDns(mqttServer)) {
+            if (wifiManager.checkDns(config.mqttServer)) {
                 connectMQTT();
             }
         }
@@ -246,11 +190,12 @@ void checkMQTT() {
 }
 
 unsigned long lastStatusTime = 0;
-const unsigned long STATUS_INTERVAL = 30000;  // 30 Sekunden
+const unsigned long STATUS_INTERVAL = 30000;
 
 void publishStatus() {
     if (!mqttConnected || !printer) return;
 
+    const ConfigManager::Config& config = configManager.getConfig();
     int battery = printer->getBattery();
 
     JsonDocument doc;
@@ -261,24 +206,53 @@ void publishStatus() {
     if (printer->getLastSeenMs() > 0) {
         doc["lastSeen"] = (millis() - printer->getLastSeenMs()) / 1000;
     }
-    doc["wifi"] = WiFi.RSSI();
+    doc["wifi"] = wifiManager.getRSSI();
     doc["heap"] = ESP.getFreeHeap();
     doc["uptime"] = millis() / 1000;
 
     char buffer[256];
     serializeJson(doc, buffer);
-    mqttClient.publish(mqttTopicStatus, buffer);
+    mqttClient.publish(config.mqttTopicStatus, buffer);
     Serial.printf("Status gesendet: %s\n", buffer);
 }
 
 // ============================================================
-// Benutzeroberfläche
+// Configuration Portal
+// ============================================================
+
+void startConfigPortal() {
+    Serial.println("\nStarting configuration portal...");
+
+    if (configPortal == nullptr) {
+        configPortal = new ConfigPortal(configManager);
+    }
+
+    if (configPortal->begin()) {
+        portalActive = true;
+    } else {
+        Serial.println("Failed to start portal!");
+        delete configPortal;
+        configPortal = nullptr;
+    }
+}
+
+void stopConfigPortal() {
+    if (configPortal != nullptr) {
+        configPortal->end();
+        delete configPortal;
+        configPortal = nullptr;
+    }
+    portalActive = false;
+}
+
+// ============================================================
+// User Interface
 // ============================================================
 
 void printHelp() {
     Serial.println("\n=== Nelko P21 MQTT Printer ===");
     Serial.println("Status:");
-    Serial.printf("  WiFi: %s\n", wifiConnected ? "Verbunden" : "Getrennt");
+    Serial.printf("  WiFi: %s (%d dBm)\n", wifiManager.isConnected() ? "Verbunden" : "Getrennt", wifiManager.getRSSI());
     Serial.printf("  MQTT: %s\n", mqttConnected ? "Verbunden" : "Getrennt");
     Serial.printf("  Drucker: %s\n", (printer && printer->isConnected()) ? "Verbunden" : "Getrennt");
     if (printer) {
@@ -288,16 +262,18 @@ void printHelp() {
         }
     }
     Serial.println("Befehle:");
-    Serial.println("  scan       - Drucker suchen & verbinden");
-    Serial.println("  disconnect - Drucker trennen");
-    Serial.println("  status     - Drucker-Status (Papier, etc.)");
-    Serial.println("  config     - Drucker-Konfiguration");
-    Serial.println("  battery    - Batterie abfragen");
-    Serial.println("  frame      - Test: Rahmen drucken");
-    Serial.println("  qrcode     - Test: QR-Code drucken");
-    Serial.println("  wifi       - WiFi neu verbinden");
-    Serial.println("  mqtt       - MQTT neu verbinden");
-    Serial.println("  help       - Diese Hilfe");
+    Serial.println("  scan        - Drucker suchen & verbinden");
+    Serial.println("  disconnect  - Drucker trennen");
+    Serial.println("  status      - Drucker-Status (Papier, etc.)");
+    Serial.println("  config      - Drucker-Konfiguration");
+    Serial.println("  battery     - Batterie abfragen");
+    Serial.println("  frame       - Test: Rahmen drucken");
+    Serial.println("  qrcode      - Test: QR-Code drucken");
+    Serial.println("  wifi        - WiFi neu verbinden");
+    Serial.println("  mqtt        - MQTT neu verbinden");
+    Serial.println("  setup       - Konfigurations-Portal starten");
+    Serial.println("  clearconfig - Konfiguration loeschen & neustarten");
+    Serial.println("  help        - Diese Hilfe");
     Serial.println("==============================\n");
 }
 
@@ -315,32 +291,71 @@ void setup() {
     Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
     Serial.printf("PSRAM: %d bytes\n", ESP.getPsramSize());
 
-    // WiFi verbinden
-    connectWiFi();
+    // Load configuration from NVS
+    configManager.load();
 
-    // MQTT verbinden (vor Bluetooth - SSL braucht viel RAM beim Handshake)
+    // Check if configured
+    if (!configManager.isConfigured()) {
+        Serial.println("\nDevice not configured!");
+        startConfigPortal();
+        return;  // Portal will run in loop()
+    }
+
+    // Configuration exists - proceed with normal startup
+    const ConfigManager::Config& config = configManager.getConfig();
+
+    Serial.printf("\nConfiguration loaded:");
+    Serial.printf("\n  Device: %s", config.deviceName);
+    Serial.printf("\n  WiFi: %s", config.wifiSsid);
+    Serial.printf("\n  MQTT: %s:%d\n", config.mqttServer, config.mqttPort);
+
+    // Connect WiFi using stored credentials
+    wifiManager.setCredentials(config.wifiSsid, config.wifiPassword);
+    wifiManager.connect();
+
+    // Connect MQTT (before Bluetooth - SSL needs RAM during handshake)
     connectMQTT();
 
-    // Initialize printer (using Nelko P21 adapter)
+    // Initialize printer
     printer = new NelkoP21Printer();
     if (printer->connect()) {
         Serial.println("Drucker bereit.");
     }
-
-    //printHelp();
 }
 
 void loop() {
-    // MQTT verarbeiten
+    // Handle configuration portal if active
+    if (portalActive && configPortal != nullptr) {
+        if (!configPortal->loop()) {
+            // Timeout - restart device
+            Serial.println("Portal timeout, restarting...");
+            stopConfigPortal();
+            delay(1000);
+            ESP.restart();
+        }
+
+        if (configPortal->wasConfigSaved()) {
+            // Config saved - restart to apply
+            Serial.println("Configuration saved, restarting...");
+            stopConfigPortal();
+            delay(2000);
+            ESP.restart();
+        }
+
+        return;  // Don't run normal loop while portal is active
+    }
+
+    // Normal operation
+    wifiManager.loop();
     checkMQTT();
 
-    // Periodisch Status senden
+    // Periodic status
     if (millis() - lastStatusTime >= STATUS_INTERVAL) {
         lastStatusTime = millis();
         publishStatus();
     }
 
-    // Serielle Befehle
+    // Serial commands
     if (Serial.available()) {
         String cmd = Serial.readStringUntil('\n');
         cmd.trim();
@@ -360,7 +375,7 @@ void loop() {
             printLabel("https://zeug.makerspacebonn.de/i/1259", "Test Item", "1259", "L");
         }
         else if (cmdLower == "wifi") {
-            connectWiFi();
+            wifiManager.connect();
         }
         else if (cmdLower == "mqtt") {
             connectMQTT();
@@ -377,16 +392,25 @@ void loop() {
         else if (cmdLower == "config") {
             if (printer) printer->queryConfig();
         }
-        else if (cmdLower == "ready" || cmdLower == "status") {
+        else if (cmdLower == "ready") {
             if (printer) printer->queryStatus();
         }
+        else if (cmdLower == "setup") {
+            // Start configuration portal manually
+            startConfigPortal();
+        }
+        else if (cmdLower == "clearconfig") {
+            Serial.println("Clearing configuration and restarting...");
+            configManager.clear();
+            delay(1000);
+            ESP.restart();
+        }
         else if (cmdLower.startsWith("send ")) {
-            // Sende beliebigen Befehl: "send BEFEHL" (für Debugging)
             if (printer) printer->sendCommand(cmd.substring(5).c_str());
         }
     }
 
-    // Drucker-Nachrichten verarbeiten
+    // Process printer messages
     if (printer) {
         printer->processIncoming();
     }
