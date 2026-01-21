@@ -1,24 +1,19 @@
-// Copy this file to config.h and fill in your credentials
+// Default configuration values (used by ConfigManager)
+// Actual credentials are stored in NVS via ConfigPortal
+// Copy this file to config.h
 
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// WiFi networks (tried in order)
-const char* wifiNetworks[][2] = {
-    {"YourSSID1", "YourPassword1"},
-    {"YourSSID2", "YourPassword2"},
-};
-const int wifiNetworkCount = sizeof(wifiNetworks) / sizeof(wifiNetworks[0]);
+// Default device name
+const char* DEFAULT_DEVICE_NAME = "LabelPrinter";
 
-// MQTT configuration
-const char* mqttServer = "mqtt.example.com";
-const int mqttPort = 1883;  // 1883 = non-SSL, 8883 = SSL
-const bool mqttUseSsl = false;  // true = SSL, false = plain TCP
-const char* mqttUser = "your_username";
-const char* mqttPassword = "your_password";
-const char* mqttTopicPrint = "labelprinter/print";
-const char* mqttTopicStatus = "labelprinter/status";
-const char* mqttTopicResult = "labelprinter/result";
-const char* mqttClientId = "ESP32_LabelPrinter";
+// Default MQTT settings
+const char* DEFAULT_MQTT_SERVER = "mqtt.example.com";
+const uint16_t DEFAULT_MQTT_PORT = 1883;
+
+// Hardware button configuration (F005)
+const uint8_t BOOT_BUTTON_PIN = 0;              // GPIO 0 = BOOT button on most ESP32 boards
+const uint32_t CONFIG_RESET_HOLD_MS = 3000;     // Hold for 3 seconds to reset config
 
 #endif

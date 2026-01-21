@@ -266,6 +266,55 @@ bool executeCommand(const String& cmd) {
 }
 
 // ============================================================
+// Hardware Button Reset (F005)
+// ============================================================
+
+/**
+ * Checks if BOOT button is held during startup.
+ * If held for CONFIG_RESET_HOLD_MS, clears config and starts portal.
+ * @return true if config was reset, false otherwise
+ */
+bool checkBootButtonReset() {
+    pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+
+    // Check if button is pressed (active LOW)
+    if (digitalRead(BOOT_BUTTON_PIN) == HIGH) {
+        return false;  // Button not pressed
+    }
+
+    LOG_INFO("BOOT button pressed - hold for config reset...");
+
+    unsigned long startTime = millis();
+    unsigned long lastDotTime = 0;
+    const unsigned long dotInterval = 500;  // Print dot every 500ms
+
+    while (digitalRead(BOOT_BUTTON_PIN) == LOW) {
+        unsigned long elapsed = millis() - startTime;
+
+        // Print progress dots
+        if (millis() - lastDotTime >= dotInterval) {
+            Serial.print(".");
+            lastDotTime = millis();
+        }
+
+        // Check if held long enough
+        if (elapsed >= CONFIG_RESET_HOLD_MS) {
+            Serial.println(" RESET!");
+            LOG_INFO("Config reset triggered by button hold");
+            configManager.clear();
+            return true;
+        }
+
+        delay(10);
+    }
+
+    // Button released too early
+    Serial.println(" released");
+    LOG_INFO("Button released - normal boot");
+    return false;
+}
+
+// ============================================================
 // Setup & Loop
 // ============================================================
 
@@ -278,6 +327,13 @@ void setup() {
     LOG_INFO("========================================");
     LOG_INFOF("Free heap: %d bytes", ESP.getFreeHeap());
     LOG_INFOF("PSRAM: %d bytes", ESP.getPsramSize());
+
+    // Check for hardware button reset (F005)
+    if (checkBootButtonReset()) {
+        LOG_INFO("Starting config portal after button reset...");
+        startConfigPortal();
+        return;
+    }
 
     // Load configuration from NVS
     configManager.load();
