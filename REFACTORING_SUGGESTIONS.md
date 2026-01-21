@@ -53,6 +53,13 @@ Added `generateFrame()` method to LabelImage class.
 - Simplified printFrame() to use LabelImage::generateFrame()
 - Better encapsulation of image generation logic
 
+### 9. Extract JSON Building ✅
+Created `JsonHelpers.h` with helper functions for MQTT messages.
+- `buildResult()` - Print result JSON (printId, success, error)
+- `buildErrorResult()` - Error-only result for non-PrintError cases
+- `buildStatus()` - Status JSON (printer, battery, wifi, heap, uptime)
+- Simplified sendResult(), mqttCallback(), and publishStatus() in main.cpp
+
 ---
 
 ## Remaining
@@ -68,21 +75,7 @@ static void btCallback(...) { if (_instance) ... }
 // Suggested: Lambda capture or member callback wrapper
 ```
 
-### 5. Extract JSON Building (main.cpp:96-112, 139-159)
-JSON construction is repeated and inline.
-
-```cpp
-// Suggested: Create StatusBuilder class
-class StatusBuilder {
-public:
-    StatusBuilder& printer(bool connected);
-    StatusBuilder& battery(int level);
-    StatusBuilder& wifi(int rssi);
-    String build();
-};
-```
-
-### 6. Extract HTML to PROGMEM (ConfigPortal.cpp:147-262)
+### 5. Extract HTML to PROGMEM (ConfigPortal.cpp:147-262)
 Large HTML string uses RAM instead of flash.
 
 ```cpp
@@ -90,7 +83,7 @@ Large HTML string uses RAM instead of flash.
 const char CONFIG_PAGE_HEADER[] PROGMEM = R"rawliteral(...)rawliteral";
 ```
 
-### 7. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
+### 6. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
 Raw pointers with manual memory management.
 
 ```cpp
@@ -106,7 +99,6 @@ std::unique_ptr<uint8_t[]> _bitmap;
 ---
 
 ## Priority Order (Suggested)
-1. #5 - Extract JSON building (reduces duplication)
-2. #6 - Extract HTML to PROGMEM (saves RAM)
-3. #4 - Remove singleton (architectural improvement)
-4. #7 - Smart pointers (modern C++, but may have ESP32 limitations)
+1. #5 - Extract HTML to PROGMEM (saves RAM)
+2. #4 - Remove singleton (architectural improvement)
+3. #6 - Smart pointers (modern C++, but may have ESP32 limitations)

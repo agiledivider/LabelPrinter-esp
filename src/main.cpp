@@ -11,6 +11,7 @@
 #include "WiFiManager.h"
 #include "MqttManager.h"
 #include "PrintError.h"
+#include "JsonHelpers.h"
 #include "Log.h"
 
 // ============================================================
@@ -98,17 +99,8 @@ void printFrame() {
 void sendResult(const char* printId, PrintError error) {
     if (!mqttManager.isConnected()) return;
 
-    JsonDocument doc;
-    if (printId && strlen(printId) > 0) {
-        doc["printId"] = printId;
-    }
-    doc["success"] = (error == PrintError::None);
-    if (error != PrintError::None) {
-        doc["error"] = printErrorToString(error);
-    }
-
     char buffer[256];
-    serializeJson(doc, buffer);
+    JsonHelpers::buildResult(buffer, sizeof(buffer), printId, error);
     mqttManager.publishResult(buffer);
     LOG_INFOF("Result sent: %s", buffer);
 }
@@ -121,12 +113,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
     if (err) {
         LOG_ERRORF("JSON error: %s", err.c_str());
-        // For JSON errors, we still need to send a result - use a generic error
-        JsonDocument result;
-        result["success"] = false;
-        result["error"] = "invalid JSON";
         char buffer[256];
-        serializeJson(result, buffer);
+        JsonHelpers::buildErrorResult(buffer, sizeof(buffer), "invalid JSON");
         mqttManager.publishResult(buffer);
         return;
     }
@@ -147,22 +135,20 @@ const unsigned long STATUS_INTERVAL = 30000;
 void publishStatus() {
     if (!mqttManager.isConnected() || !printer) return;
 
-    int battery = printer->getBattery();
-
-    JsonDocument doc;
-    doc["printer"] = printer->isConnected() ? "connected" : "disconnected";
-    if (battery >= 0) {
-        doc["battery"] = battery;
-    }
+    unsigned long lastSeenSec = 0;
     if (printer->getLastSeenMs() > 0) {
-        doc["lastSeen"] = (millis() - printer->getLastSeenMs()) / 1000;
+        lastSeenSec = (millis() - printer->getLastSeenMs()) / 1000;
     }
-    doc["wifi"] = wifiManager.getRSSI();
-    doc["heap"] = ESP.getFreeHeap();
-    doc["uptime"] = millis() / 1000;
 
     char buffer[256];
-    serializeJson(doc, buffer);
+    JsonHelpers::buildStatus(buffer, sizeof(buffer),
+        printer->isConnected(),
+        printer->getBattery(),
+        lastSeenSec,
+        wifiManager.getRSSI(),
+        ESP.getFreeHeap(),
+        millis() / 1000);
+
     mqttManager.publishStatus(buffer);
     LOG_DEBUGF("Status sent: %s", buffer);
 }
