@@ -81,24 +81,13 @@ void printFrame() {
         return;
     }
 
-    int bitmapSize = printer->getBitmapSize();
-    int bytesPerRow = printer->getBytesPerRow();
-    int labelHeight = printer->getLabelHeight();
-
-    uint8_t* bitmap = (uint8_t*)malloc(bitmapSize);
-    if (!bitmap) return;
-
-    memset(bitmap, 0xFF, bitmapSize);
-    memset(bitmap, 0x00, bytesPerRow);
-    memset(bitmap + (labelHeight - 1) * bytesPerRow, 0x00, bytesPerRow);
-
-    for (int y = 0; y < labelHeight; y++) {
-        bitmap[y * bytesPerRow] &= 0x7F;
-        bitmap[y * bytesPerRow + bytesPerRow - 1] &= 0xFE;
+    LabelImage label(printer->getLabelWidth(), printer->getLabelHeight());
+    if (!label.generateFrame()) {
+        LOG_ERROR("Failed to generate frame!");
+        return;
     }
 
-    printer->sendBitmap(bitmap);
-    free(bitmap);
+    printer->sendBitmap(label.getData());
     LOG_INFO("Frame sent!");
 }
 

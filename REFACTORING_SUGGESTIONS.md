@@ -47,6 +47,12 @@ Created `PrintError.h` with strongly-typed error codes.
 - Updated: Printer.h, NelkoP21Printer, QRCodeRenderer, LabelImage, main.cpp
 - Replaced all string-based error passing with type-safe enum
 
+### 8. Move printFrame() to LabelImage ✅
+Added `generateFrame()` method to LabelImage class.
+- Moved low-level bitmap manipulation from main.cpp to LabelImage
+- Simplified printFrame() to use LabelImage::generateFrame()
+- Better encapsulation of image generation logic
+
 ---
 
 ## Remaining
@@ -76,17 +82,7 @@ public:
 };
 ```
 
-### 6. Move printFrame() to LabelImage (main.cpp:65-90)
-Low-level bitmap manipulation belongs in the image class.
-
-```cpp
-// Suggested: LabelImage::generateFrame()
-LabelImage label(width, height);
-label.generateFrame();
-printer->sendBitmap(label.getData());
-```
-
-### 7. Extract HTML to PROGMEM (ConfigPortal.cpp:147-262)
+### 6. Extract HTML to PROGMEM (ConfigPortal.cpp:147-262)
 Large HTML string uses RAM instead of flash.
 
 ```cpp
@@ -94,7 +90,7 @@ Large HTML string uses RAM instead of flash.
 const char CONFIG_PAGE_HEADER[] PROGMEM = R"rawliteral(...)rawliteral";
 ```
 
-### 8. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
+### 7. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
 Raw pointers with manual memory management.
 
 ```cpp
@@ -110,8 +106,7 @@ std::unique_ptr<uint8_t[]> _bitmap;
 ---
 
 ## Priority Order (Suggested)
-1. #6 - Move printFrame to LabelImage (better encapsulation)
-2. #5 - Extract JSON building (reduces duplication)
-3. #7 - Extract HTML to PROGMEM (saves RAM)
-4. #4 - Remove singleton (architectural improvement)
-5. #8 - Smart pointers (modern C++, but may have ESP32 limitations)
+1. #5 - Extract JSON building (reduces duplication)
+2. #6 - Extract HTML to PROGMEM (saves RAM)
+3. #4 - Remove singleton (architectural improvement)
+4. #7 - Smart pointers (modern C++, but may have ESP32 limitations)

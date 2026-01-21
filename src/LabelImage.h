@@ -54,6 +54,13 @@ public:
     bool generate(const char* link, const char* name, const char* id,
                   QRSize qrSize = QRSize::Large);
 
+    /**
+     * Generate a test frame (rectangular border).
+     * Useful for testing printer alignment and connectivity.
+     * @return true on success, false on error (out of memory)
+     */
+    bool generateFrame();
+
     // Access bitmap data (after generate())
     const uint8_t* getData() const { return _bitmap; }
 

@@ -218,6 +218,34 @@ bool LabelImage::generate(const char* link, const char* name, const char* id, QR
     return true;
 }
 
+bool LabelImage::generateFrame() {
+    _error = PrintError::None;
+
+    if (!_bitmap) {
+        _error = PrintError::OutOfMemory;
+        return false;
+    }
+
+    // Fill with white
+    memset(_bitmap, 0xFF, _bitmapSize);
+
+    // Draw top border (full row black)
+    memset(_bitmap, 0x00, _bytesPerRow);
+
+    // Draw bottom border (full row black)
+    memset(_bitmap + (_height - 1) * _bytesPerRow, 0x00, _bytesPerRow);
+
+    // Draw left and right borders
+    for (int y = 0; y < _height; y++) {
+        // Left edge: clear bit 7 (leftmost pixel)
+        _bitmap[y * _bytesPerRow] &= 0x7F;
+        // Right edge: clear bit 0 (rightmost pixel)
+        _bitmap[y * _bytesPerRow + _bytesPerRow - 1] &= 0xFE;
+    }
+
+    return true;
+}
+
 // Base64 encoding table
 static const char base64Chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
