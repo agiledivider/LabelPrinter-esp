@@ -2,6 +2,7 @@
 #define PRINTER_H
 
 #include <Arduino.h>
+#include "PrintError.h"
 
 /**
  * Abstract printer interface for label printers.
@@ -69,9 +70,9 @@ public:
 
     /**
      * Check if printer is ready to print.
-     * @return nullptr if ready, error message otherwise
+     * @return PrintError::None if ready, error code otherwise
      */
-    virtual const char* checkReady() = 0;
+    virtual PrintError checkReady() = 0;
 
     /**
      * Query and return battery level.

@@ -6,7 +6,7 @@ LabelImage::LabelImage(int width, int height)
     , _bytesPerRow(width / 8)
     , _bitmapSize(height * (width / 8))
     , _bitmap(nullptr)
-    , _error(nullptr)
+    , _error(PrintError::None)
 {
     _bitmap = (uint8_t*)malloc(_bitmapSize);
 }
@@ -147,6 +147,7 @@ bool LabelImage::drawQRCode(const char* data, int y, QRSize size, int* outHeight
         return false;
     }
 
+    _error = PrintError::None;
     return true;
 }
 
@@ -170,15 +171,15 @@ void LabelImage::drawLogo(int y) {
 
 bool LabelImage::generate(const char* link, const char* name, const char* id, QRSize qrSize) {
     using namespace LabelLayout;
-    _error = nullptr;
+    _error = PrintError::None;
 
     if (!_bitmap) {
-        _error = "out of memory";
+        _error = PrintError::OutOfMemory;
         return false;
     }
 
     if (!link || strlen(link) == 0) {
-        _error = "missing link";
+        _error = PrintError::MissingLink;
         return false;
     }
 
@@ -190,8 +191,8 @@ bool LabelImage::generate(const char* link, const char* name, const char* id, QR
 
     if (!drawQRCode(link, qrY, qrSize, &qrHeight)) {
         // _error is set in drawQRCode
-        if (!_error) {
-            _error = "QR code generation failed";
+        if (_error == PrintError::None) {
+            _error = PrintError::QRCodeFailed;
         }
         return false;
     }

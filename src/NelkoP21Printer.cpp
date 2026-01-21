@@ -327,12 +327,12 @@ void NelkoP21Printer::queryStatus() {
     LOG_INFO("======================");
 }
 
-const char* NelkoP21Printer::checkReady() {
+PrintError NelkoP21Printer::checkReady() {
     queryStatus();
 
     if (!_connected || !_serialBT.connected()) {
         _connected = false;
-        return "printer not connected";
+        return PrintError::PrinterNotConnected;
     }
 
     clearBuffer();
@@ -354,17 +354,17 @@ const char* NelkoP21Printer::checkReady() {
 
     if (count >= 1) {
         if (response[0] == TSPL2::Status::OK) {
-            return nullptr;  // OK
+            return PrintError::None;
         } else if (response[0] == TSPL2::Status::NO_PAPER) {
-            return "no paper";
+            return PrintError::NoPaper;
         } else {
             LOG_DEBUGF("Unknown status: 0x%02X", response[0]);
-            return nullptr;  // Unknown but continue
+            return PrintError::None;  // Unknown but continue
         }
     }
 
     // No response - maybe SPP doesn't support this command
-    return nullptr;
+    return PrintError::None;
 }
 
 void NelkoP21Printer::sendBitmap(const uint8_t* bitmap) {

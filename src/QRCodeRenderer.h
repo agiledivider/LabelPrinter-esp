@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "qrcode.h"
+#include "PrintError.h"
 
 enum class QRSize {
     Small = 1,
@@ -35,8 +36,8 @@ public:
     int getModuleCount() const { return _moduleCount; }
     int getVersion() const { return _version; }
 
-    // Fehlertext nach fehlgeschlagenem generate()
-    const char* getError() const { return _error; }
+    // Error code after failed generate()
+    PrintError getError() const { return _error; }
 
     // Hilfsfunktion: Konvertiert String zu QRSize
     static QRSize sizeFromString(const char* str);
@@ -46,7 +47,7 @@ private:
     uint8_t* _qrcodeData;
     int _moduleCount;
     int _version;
-    const char* _error;
+    PrintError _error;
 
     // Pixel im Bitmap setzen
     void setPixel(uint8_t* bitmap, int bitmapWidth, int bitmapHeight,

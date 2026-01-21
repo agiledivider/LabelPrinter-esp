@@ -4,7 +4,7 @@ QRCodeRenderer::QRCodeRenderer()
     : _qrcodeData(nullptr)
     , _moduleCount(0)
     , _version(0)
-    , _error(nullptr)
+    , _error(PrintError::None)
 {
 }
 
@@ -16,22 +16,22 @@ QRCodeRenderer::~QRCodeRenderer() {
 }
 
 bool QRCodeRenderer::generate(const char* data) {
-    _error = nullptr;
+    _error = PrintError::None;
     _version = 0;
     _moduleCount = 0;
 
     if (!data || strlen(data) == 0) {
-        _error = "empty QR data";
+        _error = PrintError::QRDataEmpty;
         return false;
     }
 
-    // Alte Daten freigeben
+    // Free old data
     if (_qrcodeData) {
         free(_qrcodeData);
         _qrcodeData = nullptr;
     }
 
-    // Finde kleinste Version die den Text kodieren kann
+    // Find smallest version that can encode the text
     int bestVersion = 0;
     for (int version = 3; version <= 12; version++) {
         uint8_t tempData[qrcode_getBufferSize(version)];
@@ -42,21 +42,21 @@ bool QRCodeRenderer::generate(const char* data) {
     }
 
     if (bestVersion == 0) {
-        _error = "QR data too long";
+        _error = PrintError::QRDataTooLong;
         return false;
     }
 
-    // Buffer allokieren und QR-Code generieren
+    // Allocate buffer and generate QR code
     _qrcodeData = (uint8_t*)malloc(qrcode_getBufferSize(bestVersion));
     if (!_qrcodeData) {
-        _error = "out of memory";
+        _error = PrintError::OutOfMemory;
         return false;
     }
 
     if (qrcode_initText(&_qrcode, _qrcodeData, bestVersion, ECC_MEDIUM, data) != 0) {
         free(_qrcodeData);
         _qrcodeData = nullptr;
-        _error = "QR generation failed";
+        _error = PrintError::QRCodeFailed;
         return false;
     }
 
@@ -77,12 +77,12 @@ void QRCodeRenderer::setPixel(uint8_t* bitmap, int bitmapWidth, int bitmapHeight
 bool QRCodeRenderer::draw(uint8_t* bitmap, int bitmapWidth, int bitmapHeight,
                           int bytesPerRow, int y, QRSize size, int* outHeight) {
     if (!_qrcodeData || _moduleCount == 0) {
-        _error = "no QR code generated";
+        _error = PrintError::QRNotGenerated;
         return false;
     }
 
     if (!bitmap) {
-        _error = "invalid bitmap";
+        _error = PrintError::InvalidBitmap;
         return false;
     }
 

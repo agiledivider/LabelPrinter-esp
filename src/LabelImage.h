@@ -5,6 +5,7 @@
 #include "font5x7.h"
 #include "msb_logo.h"
 #include "QRCodeRenderer.h"
+#include "PrintError.h"
 
 /**
  * Layout constants for label generation.
@@ -56,8 +57,8 @@ public:
     // Access bitmap data (after generate())
     const uint8_t* getData() const { return _bitmap; }
 
-    // Error text after failed generate()
-    const char* getError() const { return _error; }
+    // Error code after failed generate()
+    PrintError getError() const { return _error; }
 
     /**
      * Generate Base64-encoded data URL (BMP format) for browser display.
@@ -71,7 +72,7 @@ private:
     int _bytesPerRow;
     int _bitmapSize;
     uint8_t* _bitmap;
-    const char* _error;
+    PrintError _error;
 
     // Clear bitmap (white)
     void clear();

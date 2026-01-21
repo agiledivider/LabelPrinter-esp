@@ -10,6 +10,7 @@
 #include "NelkoP21Printer.h"
 #include "WiFiManager.h"
 #include "MqttManager.h"
+#include "PrintError.h"
 #include "Log.h"
 
 // ============================================================
@@ -40,15 +41,15 @@ struct Command {
 // Print Functions
 // ============================================================
 
-const char* printLabel(const char* link, const char* name, const char* id, const char* qrSize = nullptr) {
+PrintError printLabel(const char* link, const char* name, const char* id, const char* qrSize = nullptr) {
     if (!printer || !printer->isConnected()) {
         LOG_ERROR("Printer not connected!");
-        return "printer not connected";
+        return PrintError::PrinterNotConnected;
     }
 
-    const char* statusError = printer->checkReady();
-    if (statusError) {
-        LOG_ERRORF("Printer error: %s", statusError);
+    PrintError statusError = printer->checkReady();
+    if (statusError != PrintError::None) {
+        LOG_ERRORF("Printer error: %s", printErrorToString(statusError));
         return statusError;
     }
 
@@ -58,7 +59,7 @@ const char* printLabel(const char* link, const char* name, const char* id, const
 
     LabelImage label(printer->getLabelWidth(), printer->getLabelHeight());
     if (!label.generate(link, name, id, size)) {
-        LOG_ERRORF("Label error: %s", label.getError());
+        LOG_ERRORF("Label error: %s", printErrorToString(label.getError()));
         return label.getError();
     }
 
@@ -71,7 +72,7 @@ const char* printLabel(const char* link, const char* name, const char* id, const
 
     printer->sendBitmap(label.getData());
     LOG_INFO("Label sent!");
-    return nullptr;
+    return PrintError::None;
 }
 
 void printFrame() {
@@ -105,16 +106,16 @@ void printFrame() {
 // MQTT Functions
 // ============================================================
 
-void sendResult(const char* printId, bool success, const char* error = nullptr) {
+void sendResult(const char* printId, PrintError error) {
     if (!mqttManager.isConnected()) return;
 
     JsonDocument doc;
     if (printId && strlen(printId) > 0) {
         doc["printId"] = printId;
     }
-    doc["success"] = success;
-    if (!success && error) {
-        doc["error"] = error;
+    doc["success"] = (error == PrintError::None);
+    if (error != PrintError::None) {
+        doc["error"] = printErrorToString(error);
     }
 
     char buffer[256];
@@ -131,7 +132,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
     if (err) {
         LOG_ERRORF("JSON error: %s", err.c_str());
-        sendResult(nullptr, false, "invalid JSON");
+        // For JSON errors, we still need to send a result - use a generic error
+        JsonDocument result;
+        result["success"] = false;
+        result["error"] = "invalid JSON";
+        char buffer[256];
+        serializeJson(result, buffer);
+        mqttManager.publishResult(buffer);
         return;
     }
 
@@ -141,8 +148,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     const char* id = doc["id"] | "";
     const char* size = doc["size"] | "L";
 
-    const char* error = printLabel(link, name, id, size);
-    sendResult(printId, error == nullptr, error);
+    PrintError error = printLabel(link, name, id, size);
+    sendResult(printId, error);
 }
 
 unsigned long lastStatusTime = 0;

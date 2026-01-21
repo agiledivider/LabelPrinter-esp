@@ -40,6 +40,13 @@ Created `Log.h` with level-based logging macros.
 - `LOG_RAW` / `LOG_RAWF` / `LOG_HEX` - Raw output (always enabled)
 - Replaced 152 `Serial.print*` calls across 6 files
 
+### 7. Add Error Enum ✅
+Created `PrintError.h` with strongly-typed error codes.
+- `PrintError` enum class with 11 error types
+- `printErrorToString()` helper for human-readable messages
+- Updated: Printer.h, NelkoP21Printer, QRCodeRenderer, LabelImage, main.cpp
+- Replaced all string-based error passing with type-safe enum
+
 ---
 
 ## Remaining
@@ -87,21 +94,7 @@ Large HTML string uses RAM instead of flash.
 const char CONFIG_PAGE_HEADER[] PROGMEM = R"rawliteral(...)rawliteral";
 ```
 
-### 8. Add Error Enum (Multiple files)
-String-based error passing is error-prone.
-
-```cpp
-enum class PrintError {
-    None,
-    PrinterNotConnected,
-    PrinterNotReady,
-    NoPaper,
-    OutOfMemory,
-    QRCodeFailed
-};
-```
-
-### 9. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
+### 8. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
 Raw pointers with manual memory management.
 
 ```cpp
@@ -117,9 +110,8 @@ std::unique_ptr<uint8_t[]> _bitmap;
 ---
 
 ## Priority Order (Suggested)
-1. #8 - Add error enum (type safety)
-2. #6 - Move printFrame to LabelImage (better encapsulation)
-3. #5 - Extract JSON building (reduces duplication)
-4. #7 - Extract HTML to PROGMEM (saves RAM)
-5. #4 - Remove singleton (architectural improvement)
-6. #9 - Smart pointers (modern C++, but may have ESP32 limitations)
+1. #6 - Move printFrame to LabelImage (better encapsulation)
+2. #5 - Extract JSON building (reduces duplication)
+3. #7 - Extract HTML to PROGMEM (saves RAM)
+4. #4 - Remove singleton (architectural improvement)
+5. #8 - Smart pointers (modern C++, but may have ESP32 limitations)

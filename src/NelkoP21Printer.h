@@ -38,7 +38,7 @@ public:
     unsigned long getLastSeenMs() const override { return _lastSeen; }
 
     // Status Queries
-    const char* checkReady() override;
+    PrintError checkReady() override;
     int getBattery() override;
     void queryConfig() override;
     void queryStatus() override;
