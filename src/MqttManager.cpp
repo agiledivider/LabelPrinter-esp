@@ -11,6 +11,7 @@ MqttManager::MqttManager()
     , _callback(nullptr)
     , _connected(false)
     , _lastRetry(0)
+    , _extraTopicCount(0)
 {
     memset(_server, 0, sizeof(_server));
     memset(_user, 0, sizeof(_user));
@@ -19,6 +20,7 @@ MqttManager::MqttManager()
     memset(_topicPrint, 0, sizeof(_topicPrint));
     memset(_topicStatus, 0, sizeof(_topicStatus));
     memset(_topicResult, 0, sizeof(_topicResult));
+    memset(_extraTopics, 0, sizeof(_extraTopics));
 }
 
 void MqttManager::begin(WiFiManager& wifiManager) {
@@ -55,10 +57,10 @@ bool MqttManager::connect() {
     if (_useSsl) {
         _wifiClientSecure.setInsecure();
         _mqttClient.setClient(_wifiClientSecure);
-        LOG_INFOF("Connecting to MQTT (SSL) %s:%d...", _server, _port);
+        LOG_INFOF(MQTT, "Connecting (SSL) %s:%d...", _server, _port);
     } else {
         _mqttClient.setClient(_wifiClient);
-        LOG_INFOF("Connecting to MQTT %s:%d...", _server, _port);
+        LOG_INFOF(MQTT, "Connecting %s:%d...", _server, _port);
     }
 
     _mqttClient.setServer(_server, _port);
@@ -70,14 +72,23 @@ bool MqttManager::connect() {
 
     // Connect with credentials
     if (_mqttClient.connect(_clientId, _user, _password)) {
-        LOG_INFO("MQTT connected!");
+        LOG_INFO(MQTT, "Connected!");
         _mqttClient.subscribe(_topicPrint);
-        LOG_INFOF("Subscribed: %s", _topicPrint);
+        LOG_INFOF(MQTT, "Subscribed: %s", _topicPrint);
+
+        // Re-subscribe to extra topics
+        for (size_t i = 0; i < _extraTopicCount; i++) {
+            if (strlen(_extraTopics[i]) > 0) {
+                _mqttClient.subscribe(_extraTopics[i]);
+                LOG_INFOF(MQTT, "Subscribed: %s", _extraTopics[i]);
+            }
+        }
+
         _connected = true;
         return true;
     }
 
-    LOG_ERRORF("MQTT error: %d", _mqttClient.state());
+    LOG_ERRORF(MQTT, "Connection failed, error: %d", _mqttClient.state());
     _connected = false;
     return false;
 }
@@ -85,7 +96,7 @@ bool MqttManager::connect() {
 void MqttManager::disconnect() {
     _mqttClient.disconnect();
     _connected = false;
-    LOG_INFO("MQTT disconnected.");
+    LOG_INFO(MQTT, "Disconnected");
 }
 
 bool MqttManager::publish(const char* topic, const char* payload) {
@@ -109,12 +120,35 @@ bool MqttManager::publishResult(const char* payload) {
     return _mqttClient.publish(_topicResult, payload);
 }
 
+bool MqttManager::subscribe(const char* topic) {
+    if (!topic || strlen(topic) == 0) {
+        return false;
+    }
+
+    // Store topic for re-subscription on reconnect
+    if (_extraTopicCount < MAX_EXTRA_TOPICS) {
+        safeCopy(_extraTopics[_extraTopicCount], topic, sizeof(_extraTopics[0]));
+        _extraTopicCount++;
+    }
+
+    // Subscribe if connected
+    if (_connected) {
+        _mqttClient.subscribe(topic);
+        LOG_INFOF(MQTT, "Subscribed: %s", topic);
+    }
+
+    return true;
+}
+
 void MqttManager::loop() {
     if (!_wifiManager || !_wifiManager->isConnected()) {
         return;
     }
 
     if (!_mqttClient.connected()) {
+        if (_connected) {
+            LOG_WARN(MQTT, "Connection lost");
+        }
         _connected = false;
         reconnect();
     } else {

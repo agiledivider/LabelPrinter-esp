@@ -1,59 +1,40 @@
 #ifndef LOG_H
 #define LOG_H
 
-#include <Arduino.h>
+#include "LogManager.h"
 
 /**
- * Logging Abstraction
+ * Logging Macros (F007)
  *
- * Provides consistent logging interface with level prefixes.
- * Define LOG_LEVEL before including to control verbosity:
- *   0 = OFF (no logging)
- *   1 = ERROR only
- *   2 = ERROR + INFO
- *   3 = ERROR + INFO + DEBUG (default)
+ * Convenience macros that route through LogManager singleton.
+ * All logging is runtime-configurable via LogManager.
+ *
+ * Usage:
+ *   LOG_INFO(System, "Message");
+ *   LOG_INFOF(MQTT, "Connected to %s", server);
  */
 
-#ifndef LOG_LEVEL
-#define LOG_LEVEL 3
-#endif
+// Get LogManager singleton
+#define _LOG LogManager::getInstance()
 
-// Error messages (always shown unless LOG_LEVEL=0)
-#if LOG_LEVEL >= 1
-    #define LOG_ERROR(msg) Serial.printf("[ERROR] %s\n", msg)
-    #define LOG_ERRORF(fmt, ...) Serial.printf("[ERROR] " fmt "\n", ##__VA_ARGS__)
-#else
-    #define LOG_ERROR(msg)
-    #define LOG_ERRORF(fmt, ...)
-#endif
+// Error level
+#define LOG_ERROR(comp, msg) _LOG.error(LogComponent::comp, "%s", msg)
+#define LOG_ERRORF(comp, fmt, ...) _LOG.error(LogComponent::comp, fmt, ##__VA_ARGS__)
 
-// Info messages (shown at LOG_LEVEL >= 2)
-#if LOG_LEVEL >= 2
-    #define LOG_INFO(msg) Serial.println(msg)
-    #define LOG_INFOF(fmt, ...) Serial.printf(fmt "\n", ##__VA_ARGS__)
-#else
-    #define LOG_INFO(msg)
-    #define LOG_INFOF(fmt, ...)
-#endif
+// Warning level
+#define LOG_WARN(comp, msg) _LOG.warn(LogComponent::comp, "%s", msg)
+#define LOG_WARNF(comp, fmt, ...) _LOG.warn(LogComponent::comp, fmt, ##__VA_ARGS__)
 
-// Debug messages (shown at LOG_LEVEL >= 3)
-#if LOG_LEVEL >= 3
-    #define LOG_DEBUG(msg) Serial.printf("[DEBUG] %s\n", msg)
-    #define LOG_DEBUGF(fmt, ...) Serial.printf("[DEBUG] " fmt "\n", ##__VA_ARGS__)
-#else
-    #define LOG_DEBUG(msg)
-    #define LOG_DEBUGF(fmt, ...)
-#endif
+// Info level
+#define LOG_INFO(comp, msg) _LOG.info(LogComponent::comp, "%s", msg)
+#define LOG_INFOF(comp, fmt, ...) _LOG.info(LogComponent::comp, fmt, ##__VA_ARGS__)
 
-// Raw output (no prefix, no newline) - for progress indicators etc.
-#define LOG_RAW(msg) Serial.print(msg)
-#define LOG_RAWF(fmt, ...) Serial.printf(fmt, ##__VA_ARGS__)
+// Debug level
+#define LOG_DEBUG(comp, msg) _LOG.debug(LogComponent::comp, "%s", msg)
+#define LOG_DEBUGF(comp, fmt, ...) _LOG.debug(LogComponent::comp, fmt, ##__VA_ARGS__)
 
-// Hex dump helper
-#define LOG_HEX(data, len) do { \
-    for (int _i = 0; _i < (len); _i++) { \
-        Serial.printf("%02X ", (data)[_i]); \
-    } \
-} while(0)
+// Raw output (no prefix/newline)
+#define LOG_RAW(msg) _LOG.raw("%s", msg)
+#define LOG_RAWF(fmt, ...) _LOG.raw(fmt, ##__VA_ARGS__)
 
 #endif // LOG_H

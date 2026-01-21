@@ -54,7 +54,7 @@ void ConfigManager::generateDefaultTopics() {
 
 bool ConfigManager::load() {
     if (!_prefs.begin(PREFS_NAMESPACE, true)) {  // Read-only mode
-        LOG_ERROR("Failed to open preferences for reading");
+        LOG_ERROR(Config, "Failed to open preferences for reading");
         return false;
     }
 
@@ -80,10 +80,10 @@ bool ConfigManager::load() {
         _prefs.getString("topicStatus", _config.mqttTopicStatus, sizeof(_config.mqttTopicStatus));
         _prefs.getString("topicResult", _config.mqttTopicResult, sizeof(_config.mqttTopicResult));
 
-        LOG_INFOF("Config loaded: WiFi=%s, MQTT=%s:%d",
+        LOG_INFOF(Config, "Loaded: WiFi=%s, MQTT=%s:%d",
                       _config.wifiSsid, _config.mqttServer, _config.mqttPort);
     } else {
-        LOG_INFO("No configuration found");
+        LOG_INFO(Config, "No configuration found");
         setDefaults();
     }
 
@@ -99,7 +99,7 @@ bool ConfigManager::save() {
     generateDefaultTopics();
 
     if (!_prefs.begin(PREFS_NAMESPACE, false)) {  // Read-write mode
-        LOG_ERROR("Failed to open preferences for writing");
+        LOG_ERROR(Config, "Failed to open preferences for writing");
         return false;
     }
 
@@ -128,14 +128,14 @@ bool ConfigManager::save() {
 
     _prefs.end();
 
-    LOG_INFOF("Config saved: WiFi=%s, MQTT=%s:%d",
+    LOG_INFOF(Config, "Saved: WiFi=%s, MQTT=%s:%d",
                   _config.wifiSsid, _config.mqttServer, _config.mqttPort);
     return true;
 }
 
 void ConfigManager::clear() {
     if (!_prefs.begin(PREFS_NAMESPACE, false)) {
-        LOG_ERROR("Failed to open preferences for clearing");
+        LOG_ERROR(Config, "Failed to open preferences for clearing");
         return;
     }
 
@@ -143,5 +143,5 @@ void ConfigManager::clear() {
     _prefs.end();
 
     memset(&_config, 0, sizeof(_config));
-    LOG_INFO("Configuration cleared");
+    LOG_INFO(Config, "Configuration cleared");
 }

@@ -15,9 +15,9 @@ ConfigPortal::ConfigPortal(ConfigManager& configManager)
 }
 
 bool ConfigPortal::begin() {
-    LOG_INFO("\n========================================");
-    LOG_INFO("  Starting Configuration Portal");
-    LOG_INFO("========================================");
+    LOG_INFO(Portal, "\n========================================");
+    LOG_INFO(Portal, "  Starting Configuration Portal");
+    LOG_INFO(Portal, "========================================");
 
     // Disconnect from any existing WiFi
     WiFi.disconnect(true);
@@ -26,13 +26,13 @@ bool ConfigPortal::begin() {
     // Start AP mode
     WiFi.mode(WIFI_AP);
     if (!WiFi.softAP(AP_SSID)) {
-        LOG_ERROR("Failed to start AP!");
+        LOG_ERROR(Portal, "Failed to start AP!");
         return false;
     }
 
     IPAddress apIP = WiFi.softAPIP();
-    LOG_INFOF("AP SSID: %s", AP_SSID);
-    LOG_INFOF("AP IP: %s", apIP.toString().c_str());
+    LOG_INFOF(Portal, "AP SSID: %s", AP_SSID);
+    LOG_INFOF(Portal, "AP IP: %s", apIP.toString().c_str());
 
     // Start DNS server for captive portal
     _dnsServer.start(DNS_PORT, "*", apIP);
@@ -43,15 +43,15 @@ bool ConfigPortal::begin() {
     _webServer.onNotFound([this]() { handleNotFound(); });
 
     _webServer.begin();
-    LOG_INFO("Web server started on port 80");
+    LOG_INFO(Portal, "Web server started on port 80");
 
     _active = true;
     _configSaved = false;
     _startTime = millis();
 
-    LOG_INFO("\nConnect to WiFi network: LabelPrinter-Setup");
-    LOG_INFO("Then open http://192.168.4.1 in your browser");
-    LOG_INFO("Portal will timeout in 5 minutes\n");
+    LOG_INFO(Portal, "Connect to WiFi: LabelPrinter-Setup");
+    LOG_INFO(Portal, "Then open http://192.168.4.1");
+    LOG_INFO(Portal, "Portal will timeout in 5 minutes");
 
     return true;
 }
@@ -65,7 +65,7 @@ void ConfigPortal::end() {
     WiFi.mode(WIFI_STA);
 
     _active = false;
-    LOG_INFO("Configuration portal stopped");
+    LOG_INFO(Portal, "Configuration portal stopped");
 }
 
 bool ConfigPortal::loop() {
@@ -73,7 +73,7 @@ bool ConfigPortal::loop() {
 
     // Check timeout
     if (millis() - _startTime >= TIMEOUT_MS) {
-        LOG_ERROR("Configuration portal timeout!");
+        LOG_ERROR(Portal, "Configuration portal timeout!");
         return false;
     }
 
@@ -129,7 +129,7 @@ void ConfigPortal::handleSave() {
     if (_configManager.save()) {
         _configSaved = true;
         _webServer.send(200, "text/html", getSuccessPage());
-        LOG_INFO("Configuration saved successfully!");
+        LOG_INFO(Portal, "Configuration saved successfully!");
     } else {
         _webServer.send(500, "text/html",
             "<html><body><h1>Error</h1>"

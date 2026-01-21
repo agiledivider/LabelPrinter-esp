@@ -12,6 +12,7 @@
 #include "MqttManager.h"
 #include "PrintError.h"
 #include "JsonHelpers.h"
+#include "LogManager.h"
 #include "Log.h"
 
 // ============================================================
@@ -26,6 +27,10 @@ WiFiManager wifiManager;
 MqttManager mqttManager;
 
 bool portalActive = false;
+
+// MQTT topics for logging commands
+char mqttTopicCommand[65] = "";
+char mqttTopicLog[65] = "";
 
 // ============================================================
 // Command Handler Types
@@ -44,52 +49,52 @@ struct Command {
 
 PrintError printLabel(const char* link, const char* name, const char* id, const char* qrSize = nullptr) {
     if (!printer || !printer->isConnected()) {
-        LOG_ERROR("Printer not connected!");
+        LOG_ERROR(Printer, "Printer not connected!");
         return PrintError::PrinterNotConnected;
     }
 
     PrintError statusError = printer->checkReady();
     if (statusError != PrintError::None) {
-        LOG_ERRORF("Printer error: %s", printErrorToString(statusError));
+        LOG_ERRORF(Printer, "Printer error: %s", printErrorToString(statusError));
         return statusError;
     }
 
     QRSize size = QRCodeRenderer::sizeFromString(qrSize);
     const char* sizeStr = (size == QRSize::Small) ? "S" : (size == QRSize::Medium) ? "M" : "L";
-    LOG_INFOF("Printing label: %s / %s (QR: %s)", name, id, sizeStr);
+    LOG_INFOF(Label, "Printing: %s / %s (QR: %s)", name, id, sizeStr);
 
     LabelImage label(printer->getLabelWidth(), printer->getLabelHeight());
     if (!label.generate(link, name, id, size)) {
-        LOG_ERRORF("Label error: %s", printErrorToString(label.getError()));
+        LOG_ERRORF(Label, "Generation error: %s", printErrorToString(label.getError()));
         return label.getError();
     }
 
     char* dataUrl = label.toDataURL();
     if (dataUrl) {
-        LOG_DEBUG("Label preview:");
-        LOG_DEBUG(dataUrl);
+        LOG_DEBUG(Label, "Label preview generated");
+        LOG_DEBUG(Label, dataUrl);
         free(dataUrl);
     }
 
     printer->sendBitmap(label.getData());
-    LOG_INFO("Label sent!");
+    LOG_INFO(Label, "Label sent to printer");
     return PrintError::None;
 }
 
 void printFrame() {
     if (!printer || !printer->isConnected()) {
-        LOG_ERROR("Printer not connected!");
+        LOG_ERROR(Printer, "Printer not connected!");
         return;
     }
 
     LabelImage label(printer->getLabelWidth(), printer->getLabelHeight());
     if (!label.generateFrame()) {
-        LOG_ERROR("Failed to generate frame!");
+        LOG_ERROR(Label, "Failed to generate frame!");
         return;
     }
 
     printer->sendBitmap(label.getData());
-    LOG_INFO("Frame sent!");
+    LOG_INFO(Label, "Frame sent to printer");
 }
 
 // ============================================================
@@ -102,28 +107,76 @@ void sendResult(const char* printId, PrintError error) {
     char buffer[256];
     JsonHelpers::buildResult(buffer, sizeof(buffer), printId, error);
     mqttManager.publishResult(buffer);
-    LOG_INFOF("Result sent: %s", buffer);
+    LOG_INFOF(MQTT, "Result sent: %s", buffer);
+}
+
+void handleLogCommand(JsonDocument& doc) {
+    LogManager& logMgr = LogManager::getInstance();
+
+    const char* action = doc["action"] | "";
+
+    if (strcmp(action, "setLevel") == 0) {
+        const char* level = doc["level"] | "";
+        if (logMgr.setLevelFromString(level)) {
+            LOG_INFOF(System, "Log level changed to: %s", logMgr.getLevelString());
+        } else {
+            LOG_ERRORF(System, "Invalid log level: %s", level);
+        }
+    }
+    else if (strcmp(action, "getLevel") == 0) {
+        LOG_INFOF(System, "Current log level: %s", logMgr.getLevelString());
+    }
+    else if (strcmp(action, "getLogs") == 0) {
+        char buffer[2048];
+        logMgr.getRecentLogsJson(buffer, sizeof(buffer));
+        mqttManager.publish(mqttTopicLog, buffer);
+    }
+    else if (strcmp(action, "saveLogs") == 0) {
+        logMgr.saveToPersistent();
+        LOG_INFO(System, "Logs saved to persistent storage");
+    }
+    else if (strcmp(action, "clearLogs") == 0) {
+        logMgr.clearPersistent();
+        LOG_INFO(System, "Persistent logs cleared");
+    }
+    else {
+        LOG_WARNF(MQTT, "Unknown log action: %s", action);
+    }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    LOG_INFOF("MQTT message on %s", topic);
+    LOG_INFOF(MQTT, "Message on %s (%d bytes)", topic, length);
 
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, payload, length);
 
     if (err) {
-        LOG_ERRORF("JSON error: %s", err.c_str());
+        LOG_ERRORF(MQTT, "JSON parse error: %s", err.c_str());
         char buffer[256];
         JsonHelpers::buildErrorResult(buffer, sizeof(buffer), "invalid JSON");
         mqttManager.publishResult(buffer);
         return;
     }
 
+    // Check if this is a command message
+    if (strlen(mqttTopicCommand) > 0 && strcmp(topic, mqttTopicCommand) == 0) {
+        const char* cmd = doc["cmd"] | "";
+        if (strcmp(cmd, "log") == 0) {
+            handleLogCommand(doc);
+            return;
+        }
+        LOG_WARNF(MQTT, "Unknown command: %s", cmd);
+        return;
+    }
+
+    // Otherwise treat as print request
     const char* printId = doc["printId"] | "";
     const char* link = doc["link"] | "";
     const char* name = doc["name"] | "";
     const char* id = doc["id"] | "";
     const char* size = doc["size"] | "L";
+
+    LOG_DEBUGF(MQTT, "Print request: link=%s name=%s id=%s size=%s", link, name, id, size);
 
     PrintError error = printLabel(link, name, id, size);
     sendResult(printId, error);
@@ -150,7 +203,7 @@ void publishStatus() {
         millis() / 1000);
 
     mqttManager.publishStatus(buffer);
-    LOG_DEBUGF("Status sent: %s", buffer);
+    LOG_DEBUGF(MQTT, "Status published");
 }
 
 // ============================================================
@@ -158,7 +211,7 @@ void publishStatus() {
 // ============================================================
 
 void startConfigPortal() {
-    LOG_INFO("\nStarting configuration portal...");
+    LOG_INFO(Portal, "Starting configuration portal...");
 
     if (configPortal == nullptr) {
         configPortal = new ConfigPortal(configManager);
@@ -166,8 +219,9 @@ void startConfigPortal() {
 
     if (configPortal->begin()) {
         portalActive = true;
+        LOG_INFO(Portal, "Portal active at 192.168.4.1");
     } else {
-        LOG_ERROR("Failed to start portal!");
+        LOG_ERROR(Portal, "Failed to start portal!");
         delete configPortal;
         configPortal = nullptr;
     }
@@ -187,31 +241,39 @@ void stopConfigPortal() {
 // ============================================================
 
 void printHelp() {
-    LOG_INFO("\n=== Nelko P21 MQTT Printer ===");
-    LOG_INFO("Status:");
-    LOG_INFOF("  WiFi: %s (%d dBm)", wifiManager.isConnected() ? "Connected" : "Disconnected", wifiManager.getRSSI());
-    LOG_INFOF("  MQTT: %s", mqttManager.isConnected() ? "Connected" : "Disconnected");
-    LOG_INFOF("  Printer: %s", (printer && printer->isConnected()) ? "Connected" : "Disconnected");
+    LogManager& logMgr = LogManager::getInstance();
+
+    LOG_INFO(System, "\n=== Nelko P21 MQTT Printer ===");
+    LOG_INFO(System, "Status:");
+    LOG_INFOF(System, "  WiFi: %s (%d dBm)", wifiManager.isConnected() ? "Connected" : "Disconnected", wifiManager.getRSSI());
+    LOG_INFOF(System, "  MQTT: %s", mqttManager.isConnected() ? "Connected" : "Disconnected");
+    LOG_INFOF(System, "  Printer: %s", (printer && printer->isConnected()) ? "Connected" : "Disconnected");
     if (printer) {
         int battery = printer->getBattery();
         if (battery >= 0) {
-            LOG_INFOF("  Battery: %d%%", battery);
+            LOG_INFOF(System, "  Battery: %d%%", battery);
         }
     }
-    LOG_INFO("Commands:");
-    LOG_INFO("  scan        - Scan & connect printer");
-    LOG_INFO("  disconnect  - Disconnect printer");
-    LOG_INFO("  status      - Printer status (paper, etc.)");
-    LOG_INFO("  config      - Printer configuration");
-    LOG_INFO("  battery     - Query battery level");
-    LOG_INFO("  frame       - Test: Print frame");
-    LOG_INFO("  qrcode      - Test: Print QR code");
-    LOG_INFO("  wifi        - Reconnect WiFi");
-    LOG_INFO("  mqtt        - Reconnect MQTT");
-    LOG_INFO("  setup       - Start configuration portal");
-    LOG_INFO("  clearconfig - Clear config & restart");
-    LOG_INFO("  help        - Show this help");
-    LOG_INFO("==============================\n");
+    LOG_INFOF(System, "  Log level: %s (buffer: %d%%)", logMgr.getLevelString(), logMgr.getBufferUsage());
+    LOG_INFO(System, "Commands:");
+    LOG_INFO(System, "  scan        - Scan & connect printer");
+    LOG_INFO(System, "  disconnect  - Disconnect printer");
+    LOG_INFO(System, "  status      - Printer status (paper, etc.)");
+    LOG_INFO(System, "  config      - Printer configuration");
+    LOG_INFO(System, "  battery     - Query battery level");
+    LOG_INFO(System, "  frame       - Test: Print frame");
+    LOG_INFO(System, "  qrcode      - Test: Print QR code");
+    LOG_INFO(System, "  wifi        - Reconnect WiFi");
+    LOG_INFO(System, "  mqtt        - Reconnect MQTT");
+    LOG_INFO(System, "  setup       - Start configuration portal");
+    LOG_INFO(System, "  clearconfig - Clear config & restart");
+    LOG_INFO(System, "  log <level> - Set log level (DEBUG/INFO/WARN/ERROR/NONE)");
+    LOG_INFO(System, "  loglevel    - Show current log level");
+    LOG_INFO(System, "  logsave     - Save logs to flash");
+    LOG_INFO(System, "  logshow     - Show saved crash log");
+    LOG_INFO(System, "  logclear    - Clear saved crash log");
+    LOG_INFO(System, "  help        - Show this help");
+    LOG_INFO(System, "==============================\n");
 }
 
 // ============================================================
@@ -230,10 +292,40 @@ void cmdConfig() { if (printer) printer->queryConfig(); }
 void cmdReady() { if (printer) printer->queryStatus(); }
 void cmdSetup() { startConfigPortal(); }
 void cmdClearConfig() {
-    LOG_INFO("Clearing configuration and restarting...");
+    LOG_INFO(Config, "Clearing configuration and restarting...");
     configManager.clear();
     delay(1000);
     ESP.restart();
+}
+
+void cmdLogLevel() {
+    LogManager& logMgr = LogManager::getInstance();
+    LOG_INFOF(System, "Current log level: %s", logMgr.getLevelString());
+}
+
+void cmdLogSave() {
+    LogManager& logMgr = LogManager::getInstance();
+    logMgr.saveToPersistent();
+    LOG_INFO(System, "Logs saved to persistent storage");
+}
+
+void cmdLogShow() {
+    LogManager& logMgr = LogManager::getInstance();
+    char buffer[2048];
+    size_t len = logMgr.loadFromPersistent(buffer, sizeof(buffer));
+    if (len > 0) {
+        LOG_INFO(System, "=== Saved Crash Log ===");
+        Serial.println(buffer);
+        LOG_INFO(System, "=== End Crash Log ===");
+    } else {
+        LOG_INFO(System, "No saved crash log found");
+    }
+}
+
+void cmdLogClear() {
+    LogManager& logMgr = LogManager::getInstance();
+    logMgr.clearPersistent();
+    LOG_INFO(System, "Persistent logs cleared");
 }
 
 // Command lookup table
@@ -252,6 +344,10 @@ const Command commands[] = {
     {"ready", cmdReady},
     {"setup", cmdSetup},
     {"clearconfig", cmdClearConfig},
+    {"loglevel", cmdLogLevel},
+    {"logsave", cmdLogSave},
+    {"logshow", cmdLogShow},
+    {"logclear", cmdLogClear},
 };
 const int commandCount = sizeof(commands) / sizeof(commands[0]);
 
@@ -282,7 +378,7 @@ bool checkBootButtonReset() {
         return false;  // Button not pressed
     }
 
-    LOG_INFO("BOOT button pressed - hold for config reset...");
+    LOG_INFO(System, "BOOT button pressed - hold for config reset...");
 
     unsigned long startTime = millis();
     unsigned long lastDotTime = 0;
@@ -300,7 +396,7 @@ bool checkBootButtonReset() {
         // Check if held long enough
         if (elapsed >= CONFIG_RESET_HOLD_MS) {
             Serial.println(" RESET!");
-            LOG_INFO("Config reset triggered by button hold");
+            LOG_INFO(System, "Config reset triggered by button hold");
             configManager.clear();
             return true;
         }
@@ -310,7 +406,7 @@ bool checkBootButtonReset() {
 
     // Button released too early
     Serial.println(" released");
-    LOG_INFO("Button released - normal boot");
+    LOG_INFO(System, "Button released - normal boot");
     return false;
 }
 
@@ -322,15 +418,20 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    LOG_INFO("\n========================================");
-    LOG_INFO("  Nelko P21 MQTT Label Printer");
-    LOG_INFO("========================================");
-    LOG_INFOF("Free heap: %d bytes", ESP.getFreeHeap());
-    LOG_INFOF("PSRAM: %d bytes", ESP.getPsramSize());
+    // Initialize logging system first
+    LogManager& logMgr = LogManager::getInstance();
+    logMgr.begin();
+
+    LOG_INFO(System, "\n========================================");
+    LOG_INFO(System, "  Nelko P21 MQTT Label Printer");
+    LOG_INFO(System, "========================================");
+    LOG_INFOF(System, "Free heap: %d bytes", ESP.getFreeHeap());
+    LOG_INFOF(System, "PSRAM: %d bytes", ESP.getPsramSize());
+    LOG_INFOF(System, "Log level: %s", logMgr.getLevelString());
 
     // Check for hardware button reset (F005)
     if (checkBootButtonReset()) {
-        LOG_INFO("Starting config portal after button reset...");
+        LOG_INFO(System, "Starting config portal after button reset...");
         startConfigPortal();
         return;
     }
@@ -340,7 +441,7 @@ void setup() {
 
     // Check if configured
     if (!configManager.isConfigured()) {
-        LOG_INFO("\nDevice not configured!");
+        LOG_INFO(Config, "Device not configured!");
         startConfigPortal();
         return;  // Portal will run in loop()
     }
@@ -348,10 +449,14 @@ void setup() {
     // Configuration exists - proceed with normal startup
     const ConfigManager::Config& config = configManager.getConfig();
 
-    LOG_INFO("\nConfiguration loaded:");
-    LOG_INFOF("  Device: %s", config.deviceName);
-    LOG_INFOF("  WiFi: %s", config.wifiSsid);
-    LOG_INFOF("  MQTT: %s:%d", config.mqttServer, config.mqttPort);
+    LOG_INFO(Config, "Configuration loaded:");
+    LOG_INFOF(Config, "  Device: %s", config.deviceName);
+    LOG_INFOF(Config, "  WiFi: %s", config.wifiSsid);
+    LOG_INFOF(Config, "  MQTT: %s:%d", config.mqttServer, config.mqttPort);
+
+    // Generate command and log topics based on device name
+    snprintf(mqttTopicCommand, sizeof(mqttTopicCommand), "labelprinter/%s/cmd", config.deviceName);
+    snprintf(mqttTopicLog, sizeof(mqttTopicLog), "labelprinter/%s/log", config.deviceName);
 
     // Connect WiFi using stored credentials
     wifiManager.setCredentials(config.wifiSsid, config.wifiPassword);
@@ -363,12 +468,24 @@ void setup() {
                           config.mqttUser, config.mqttPassword, config.deviceName);
     mqttManager.setTopics(config.mqttTopicPrint, config.mqttTopicStatus, config.mqttTopicResult);
     mqttManager.setCallback(mqttCallback);
+
+    // Subscribe to command topic for log level adjustment and other commands
+    mqttManager.subscribe(mqttTopicCommand);
+    LOG_INFOF(MQTT, "Command topic: %s", mqttTopicCommand);
+    LOG_INFOF(MQTT, "Log topic: %s", mqttTopicLog);
+
     mqttManager.connect();
+
+    // Setup MQTT log output (publish logs to MQTT)
+    logMgr.setMqttEnabled(true, mqttTopicLog,
+        [](const char* topic, const char* payload) -> bool {
+            return mqttManager.publish(topic, payload);
+        });
 
     // Initialize printer
     printer = new NelkoP21Printer();
     if (printer->connect()) {
-        LOG_INFO("Printer ready.");
+        LOG_INFO(Printer, "Printer ready");
     }
 }
 
@@ -377,7 +494,7 @@ void loop() {
     if (portalActive && configPortal != nullptr) {
         if (!configPortal->loop()) {
             // Timeout - restart device
-            LOG_INFO("Portal timeout, restarting...");
+            LOG_INFO(Portal, "Portal timeout, restarting...");
             stopConfigPortal();
             delay(1000);
             ESP.restart();
@@ -385,7 +502,7 @@ void loop() {
 
         if (configPortal->wasConfigSaved()) {
             // Config saved - restart to apply
-            LOG_INFO("Configuration saved, restarting...");
+            LOG_INFO(Portal, "Configuration saved, restarting...");
             stopConfigPortal();
             delay(2000);
             ESP.restart();
@@ -416,6 +533,18 @@ void loop() {
             // Handle commands with arguments
             if (cmdLower.startsWith("send ")) {
                 if (printer) printer->sendCommand(cmd.substring(5).c_str());
+            }
+            else if (cmdLower.startsWith("log ")) {
+                // Set log level: "log DEBUG", "log INFO", etc.
+                String level = cmd.substring(4);
+                level.trim();
+                level.toUpperCase();
+                LogManager& logMgr = LogManager::getInstance();
+                if (logMgr.setLevelFromString(level.c_str())) {
+                    LOG_INFOF(System, "Log level set to: %s", logMgr.getLevelString());
+                } else {
+                    LOG_ERRORF(System, "Invalid log level: %s (use DEBUG/INFO/WARN/ERROR/NONE)", level.c_str());
+                }
             }
         }
     }

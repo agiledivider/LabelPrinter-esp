@@ -106,6 +106,13 @@ public:
     bool publishResult(const char* payload);
 
     /**
+     * Subscribes to an additional topic.
+     * @param topic Topic to subscribe to
+     * @return true if successful
+     */
+    bool subscribe(const char* topic);
+
+    /**
      * Muss in loop() aufgerufen werden.
      * Verarbeitet eingehende Nachrichten und handhabt Wiederverbindung.
      */
@@ -129,6 +136,11 @@ private:
     char _topicPrint[65];
     char _topicStatus[65];
     char _topicResult[65];
+
+    // Additional subscription topics (for commands, etc.)
+    static const size_t MAX_EXTRA_TOPICS = 4;
+    char _extraTopics[MAX_EXTRA_TOPICS][65];
+    size_t _extraTopicCount;
 
     // Callback
     MqttMessageCallback _callback;
