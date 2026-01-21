@@ -10,6 +10,15 @@ NelkoP21Printer::NelkoP21Printer()
     , _connected(false)
     , _battery(-1)
     , _lastSeen(0)
+    , _autoReconnectEnabled(false)
+    , _lastReconnectAttempt(0)
+    , _reconnectInterval(0)
+    , _reconnectIntervalMin(10)
+    , _reconnectIntervalMax(300)
+    , _maxReconnectAttempts(0)
+    , _reconnectAttempts(0)
+    , _wasConnected(false)
+    , _connectionStateCallback(nullptr)
 {
     _instance = this;
 }
@@ -418,5 +427,82 @@ void NelkoP21Printer::processIncoming() {
         while (_serialBT.available()) {
             Serial.printf("%c", (char)_serialBT.read());
         }
+    }
+}
+
+// ============================================================
+// Auto-Reconnect (F006)
+// ============================================================
+
+void NelkoP21Printer::enableAutoReconnect(uint16_t minIntervalSec, uint16_t maxIntervalSec, uint8_t maxAttempts) {
+    _autoReconnectEnabled = true;
+    _reconnectIntervalMin = minIntervalSec;
+    _reconnectIntervalMax = maxIntervalSec;
+    _maxReconnectAttempts = maxAttempts;
+    _reconnectInterval = (unsigned long)minIntervalSec * 1000;
+    _reconnectAttempts = 0;
+    LOG_INFOF(Printer, "Auto-reconnect enabled: %d-%ds, max attempts: %d",
+              minIntervalSec, maxIntervalSec, maxAttempts == 0 ? -1 : maxAttempts);
+}
+
+void NelkoP21Printer::disableAutoReconnect() {
+    _autoReconnectEnabled = false;
+    LOG_INFO(Printer, "Auto-reconnect disabled");
+}
+
+void NelkoP21Printer::setConnectionStateCallback(std::function<void(bool)> callback) {
+    _connectionStateCallback = callback;
+}
+
+void NelkoP21Printer::resetReconnectBackoff() {
+    _reconnectInterval = (unsigned long)_reconnectIntervalMin * 1000;
+    _reconnectAttempts = 0;
+    _lastReconnectAttempt = 0;
+}
+
+void NelkoP21Printer::loop() {
+    // Detect state change for callback
+    if (_wasConnected != _connected) {
+        _wasConnected = _connected;
+        if (_connectionStateCallback) {
+            _connectionStateCallback(_connected);
+        }
+        if (_connected) {
+            resetReconnectBackoff();
+        }
+    }
+
+    // Auto-reconnect logic
+    if (!_autoReconnectEnabled || _connected) {
+        return;
+    }
+
+    // Check if max attempts reached (0 = infinite)
+    if (_maxReconnectAttempts > 0 && _reconnectAttempts >= _maxReconnectAttempts) {
+        return;
+    }
+
+    unsigned long now = millis();
+    if (now - _lastReconnectAttempt < _reconnectInterval) {
+        return;
+    }
+
+    _lastReconnectAttempt = now;
+    _reconnectAttempts++;
+
+    LOG_INFOF(Printer, "Reconnect attempt %d/%d (interval: %lus)",
+              _reconnectAttempts,
+              _maxReconnectAttempts == 0 ? -1 : (int)_maxReconnectAttempts,
+              _reconnectInterval / 1000);
+
+    if (connect()) {
+        LOG_INFO(Printer, "Reconnected successfully");
+    } else {
+        // First 10 attempts use minimum interval, then exponential backoff
+        if (_reconnectAttempts >= 10) {
+            unsigned long maxMs = (unsigned long)_reconnectIntervalMax * 1000;
+            _reconnectInterval = (_reconnectInterval * 2 > maxMs) ? maxMs : _reconnectInterval * 2;
+        }
+        LOG_INFOF(Printer, "Reconnect failed, next attempt in %lus", _reconnectInterval / 1000);
     }
 }

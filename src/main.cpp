@@ -484,6 +484,33 @@ void setup() {
 
     // Initialize printer
     printer = new NelkoP21Printer();
+
+    // Setup printer auto-reconnect (F006)
+    NelkoP21Printer* nelkoPrinter = static_cast<NelkoP21Printer*>(printer);
+    if (config.printerAutoReconnect) {
+        nelkoPrinter->enableAutoReconnect(
+            config.printerReconnectMin,
+            config.printerReconnectMax,
+            config.printerMaxAttempts
+        );
+    }
+
+    // Set connection state callback for MQTT notifications (F006)
+    nelkoPrinter->setConnectionStateCallback([](bool connected) {
+        if (!mqttManager.isConnected()) return;
+
+        JsonDocument doc;
+        doc["event"] = connected ? "printer_connected" : "printer_disconnected";
+        doc["timestamp"] = millis();
+
+        char buffer[128];
+        serializeJson(doc, buffer, sizeof(buffer));
+
+        const ConfigManager::Config& cfg = configManager.getConfig();
+        mqttManager.publish(cfg.mqttTopicStatus, buffer);
+        LOG_INFOF(Printer, "Connection state changed: %s", connected ? "connected" : "disconnected");
+    });
+
     if (printer->connect()) {
         LOG_INFO(Printer, "Printer ready");
     }
@@ -514,6 +541,12 @@ void loop() {
     // Normal operation
     wifiManager.loop();
     mqttManager.loop();
+
+    // Printer auto-reconnect loop (F006)
+    if (printer) {
+        NelkoP21Printer* nelkoPrinter = static_cast<NelkoP21Printer*>(printer);
+        nelkoPrinter->loop();
+    }
 
     // Periodic status
     if (millis() - lastStatusTime >= STATUS_INTERVAL) {

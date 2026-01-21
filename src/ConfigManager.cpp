@@ -21,6 +21,13 @@ void ConfigManager::setDefaults() {
     if (_config.mqttPort == 0) {
         _config.mqttPort = 1883;
     }
+
+    // Default printer auto-reconnect settings (F006)
+    // These are set explicitly since 0 is a valid value for some fields
+    _config.printerAutoReconnect = true;
+    _config.printerReconnectMin = 10;    // 10 seconds initial
+    _config.printerReconnectMax = 300;   // 5 minutes max
+    _config.printerMaxAttempts = 0;      // Infinite retries
 }
 
 void ConfigManager::generateDefaultTopics() {
@@ -80,6 +87,12 @@ bool ConfigManager::load() {
         _prefs.getString("topicStatus", _config.mqttTopicStatus, sizeof(_config.mqttTopicStatus));
         _prefs.getString("topicResult", _config.mqttTopicResult, sizeof(_config.mqttTopicResult));
 
+        // Load printer auto-reconnect settings (F006)
+        _config.printerAutoReconnect = _prefs.getBool("prtAutoRecon", true);
+        _config.printerReconnectMin = _prefs.getUShort("prtReconMin", 10);
+        _config.printerReconnectMax = _prefs.getUShort("prtReconMax", 300);
+        _config.printerMaxAttempts = _prefs.getUChar("prtMaxAttempt", 0);
+
         LOG_INFOF(Config, "Loaded: WiFi=%s, MQTT=%s:%d",
                       _config.wifiSsid, _config.mqttServer, _config.mqttPort);
     } else {
@@ -125,6 +138,12 @@ bool ConfigManager::save() {
     _prefs.putString("topicPrint", _config.mqttTopicPrint);
     _prefs.putString("topicStatus", _config.mqttTopicStatus);
     _prefs.putString("topicResult", _config.mqttTopicResult);
+
+    // Save printer auto-reconnect settings (F006)
+    _prefs.putBool("prtAutoRecon", _config.printerAutoReconnect);
+    _prefs.putUShort("prtReconMin", _config.printerReconnectMin);
+    _prefs.putUShort("prtReconMax", _config.printerReconnectMax);
+    _prefs.putUChar("prtMaxAttempt", _config.printerMaxAttempts);
 
     _prefs.end();
 

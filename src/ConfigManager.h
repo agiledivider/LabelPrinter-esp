@@ -33,6 +33,11 @@ public:
         char mqttTopicStatus[65];
         char mqttTopicResult[65];
         bool configured;
+        // Printer auto-reconnect settings (F006)
+        bool printerAutoReconnect;
+        uint16_t printerReconnectMin;   // Min interval (seconds)
+        uint16_t printerReconnectMax;   // Max interval (seconds)
+        uint8_t printerMaxAttempts;     // Max attempts, 0 = infinite
     };
 
     ConfigManager();

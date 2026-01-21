@@ -3,6 +3,7 @@
 
 #include "Printer.h"
 #include "BluetoothSerial.h"
+#include <functional>
 
 /**
  * Nelko P21 thermal label printer implementation.
@@ -63,6 +64,37 @@ public:
      */
     void end();
 
+    // Auto-Reconnect (F006)
+
+    /**
+     * Enable automatic reconnection with exponential backoff.
+     * @param minIntervalSec Minimum interval between attempts (seconds)
+     * @param maxIntervalSec Maximum interval between attempts (seconds)
+     * @param maxAttempts Maximum reconnect attempts, 0 = infinite
+     */
+    void enableAutoReconnect(uint16_t minIntervalSec, uint16_t maxIntervalSec, uint8_t maxAttempts);
+
+    /**
+     * Disable automatic reconnection.
+     */
+    void disableAutoReconnect();
+
+    /**
+     * Process reconnection logic. Call from main loop.
+     */
+    void loop();
+
+    /**
+     * Set callback for connection state changes.
+     * @param callback Function called with (connected) when state changes
+     */
+    void setConnectionStateCallback(std::function<void(bool)> callback);
+
+    /**
+     * Reset reconnect backoff timer after successful connection.
+     */
+    void resetReconnectBackoff();
+
 private:
     // Label specifications for Nelko P21
     static constexpr int LABEL_WIDTH = 96;
@@ -78,6 +110,17 @@ private:
     bool _connected;
     int _battery;
     unsigned long _lastSeen;
+
+    // Auto-reconnect state (F006)
+    bool _autoReconnectEnabled;
+    unsigned long _lastReconnectAttempt;
+    unsigned long _reconnectInterval;
+    uint16_t _reconnectIntervalMin;
+    uint16_t _reconnectIntervalMax;
+    uint8_t _maxReconnectAttempts;
+    uint8_t _reconnectAttempts;
+    bool _wasConnected;  // Track state changes for notifications
+    std::function<void(bool)> _connectionStateCallback;
 
     // Bluetooth callback for disconnect detection
     static NelkoP21Printer* _instance;
