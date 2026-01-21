@@ -39,7 +39,7 @@ bool WiFiManager::hasCredentials() const {
 }
 
 bool WiFiManager::tryConnect(const char* ssid, const char* password) {
-    Serial.printf("Versuche: %s\n", ssid);
+    Serial.printf("Trying: %s\n", ssid);
     WiFi.begin(ssid, password);
 
     int attempts = 0;
@@ -50,25 +50,25 @@ bool WiFiManager::tryConnect(const char* ssid, const char* password) {
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("\nVerbunden mit %s\n", ssid);
+        Serial.printf("\nConnected to %s\n", ssid);
         Serial.printf("IP: %s\n", WiFi.localIP().toString().c_str());
         return true;
     }
 
-    Serial.println(" fehlgeschlagen");
+    Serial.println(" failed");
     return false;
 }
 
 bool WiFiManager::connect() {
     if (!hasCredentials()) {
-        Serial.println("Keine Netzwerke konfiguriert!");
+        Serial.println("No networks configured!");
         _connected = false;
         return false;
     }
 
-    Serial.println("Verbinde mit WiFi...");
+    Serial.println("Connecting to WiFi...");
 
-    // Single-Credential-Modus
+    // Single credential mode
     if (_useSingleCredentials) {
         if (tryConnect(_singleSsid, _singlePassword)) {
             _connected = true;
@@ -76,7 +76,7 @@ bool WiFiManager::connect() {
             return true;
         }
     } else {
-        // Multi-Netzwerk-Modus
+        // Multi-network mode
         for (int i = 0; i < _networkCount; i++) {
             if (tryConnect(_networks[i][0], _networks[i][1])) {
                 _connected = true;
@@ -86,7 +86,7 @@ bool WiFiManager::connect() {
         }
     }
 
-    Serial.println("Kein WiFi-Netzwerk erreichbar!");
+    Serial.println("No WiFi network reachable!");
     _connected = false;
     return false;
 }
@@ -94,7 +94,7 @@ bool WiFiManager::connect() {
 void WiFiManager::disconnect() {
     WiFi.disconnect();
     _connected = false;
-    Serial.println("WiFi getrennt.");
+    Serial.println("WiFi disconnected.");
 }
 
 bool WiFiManager::checkDns(const char* hostname) {
@@ -109,11 +109,11 @@ bool WiFiManager::checkDns(const char* hostname) {
     }
 
     _dnsFailCount++;
-    Serial.printf("DNS fehlgeschlagen fuer %s (%d/%d)\n",
+    Serial.printf("DNS failed for %s (%d/%d)\n",
         hostname, _dnsFailCount, DNS_FAIL_THRESHOLD);
 
     if (_dnsFailCount >= DNS_FAIL_THRESHOLD) {
-        Serial.println("Zu viele DNS-Fehler, WiFi wird neu verbunden...");
+        Serial.println("Too many DNS failures, reconnecting WiFi...");
         reconnect();
     }
 
@@ -129,7 +129,7 @@ void WiFiManager::reconnect() {
     while (!_connected) {
         connect();
         if (!_connected) {
-            Serial.println("WiFi fehlgeschlagen, neuer Versuch in 5 Sekunden...");
+            Serial.println("WiFi failed, retrying in 5 seconds...");
             delay(5000);
         }
     }
@@ -152,17 +152,17 @@ String WiFiManager::getIP() const {
 void WiFiManager::loop() {
     unsigned long now = millis();
 
-    // Periodische Verbindungspruefung
+    // Periodic connection check
     if (now - _lastConnectionCheck >= CONNECTION_CHECK_INTERVAL) {
         _lastConnectionCheck = now;
 
         if (_connected && WiFi.status() != WL_CONNECTED) {
-            Serial.println("WiFi-Verbindung verloren!");
+            Serial.println("WiFi connection lost!");
             _connected = false;
         }
 
         if (!_connected) {
-            Serial.println("WiFi-Neuverbindung...");
+            Serial.println("WiFi reconnecting...");
             connect();
         }
     }

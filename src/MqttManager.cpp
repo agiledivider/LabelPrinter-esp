@@ -67,10 +67,10 @@ bool MqttManager::connect() {
     if (_useSsl) {
         _wifiClientSecure.setInsecure();
         _mqttClient.setClient(_wifiClientSecure);
-        Serial.printf("Verbinde mit MQTT (SSL) %s:%d...\n", _server, _port);
+        Serial.printf("Connecting to MQTT (SSL) %s:%d...\n", _server, _port);
     } else {
         _mqttClient.setClient(_wifiClient);
-        Serial.printf("Verbinde mit MQTT %s:%d...\n", _server, _port);
+        Serial.printf("Connecting to MQTT %s:%d...\n", _server, _port);
     }
 
     _mqttClient.setServer(_server, _port);
@@ -82,14 +82,14 @@ bool MqttManager::connect() {
 
     // Connect with credentials
     if (_mqttClient.connect(_clientId, _user, _password)) {
-        Serial.println("MQTT verbunden!");
+        Serial.println("MQTT connected!");
         _mqttClient.subscribe(_topicPrint);
         Serial.printf("Subscribed: %s\n", _topicPrint);
         _connected = true;
         return true;
     }
 
-    Serial.printf("MQTT Fehler: %d\n", _mqttClient.state());
+    Serial.printf("MQTT error: %d\n", _mqttClient.state());
     _connected = false;
     return false;
 }
@@ -97,7 +97,7 @@ bool MqttManager::connect() {
 void MqttManager::disconnect() {
     _mqttClient.disconnect();
     _connected = false;
-    Serial.println("MQTT getrennt.");
+    Serial.println("MQTT disconnected.");
 }
 
 bool MqttManager::publish(const char* topic, const char* payload) {

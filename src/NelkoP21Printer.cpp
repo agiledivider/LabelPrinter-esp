@@ -26,7 +26,7 @@ NelkoP21Printer::~NelkoP21Printer() {
 
 void NelkoP21Printer::btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t* param) {
     if (event == ESP_SPP_CLOSE_EVT && _instance) {
-        Serial.println("Drucker getrennt!");
+        Serial.println("Printer disconnected!");
         _instance->_connected = false;
     }
 }
@@ -37,13 +37,13 @@ bool NelkoP21Printer::begin(const char* deviceName) {
     }
 
     if (!_serialBT.begin(deviceName, true)) {
-        Serial.println("Bluetooth-Fehler!");
+        Serial.println("Bluetooth error!");
         return false;
     }
 
     _serialBT.register_callback(btCallback);
     _initialized = true;
-    Serial.println("Bluetooth initialisiert");
+    Serial.println("Bluetooth initialized");
     return true;
 }
 
@@ -88,11 +88,11 @@ void NelkoP21Printer::skipEcho(int echoLen, unsigned long timeoutMs) {
 }
 
 bool NelkoP21Printer::scanAndConnect() {
-    Serial.println("Suche Bluetooth-Geraete...");
+    Serial.println("Scanning for Bluetooth devices...");
 
     BTScanResults* scanResults = _serialBT.discover(5000);
     if (!scanResults) {
-        Serial.println("Bluetooth-Scan fehlgeschlagen! Versuche Neustart...");
+        Serial.println("Bluetooth scan failed! Trying restart...");
 
         // Restart Bluetooth
         _serialBT.disconnect();
@@ -102,7 +102,7 @@ bool NelkoP21Printer::scanAndConnect() {
         btStart();
 
         if (!_serialBT.begin("ESP32_LabelPrinter", true)) {
-            Serial.println("Bluetooth-Neustart fehlgeschlagen!");
+            Serial.println("Bluetooth restart failed!");
             return false;
         }
 
@@ -112,13 +112,13 @@ bool NelkoP21Printer::scanAndConnect() {
         // Retry scan
         scanResults = _serialBT.discover(5000);
         if (!scanResults) {
-            Serial.println("Bluetooth-Scan erneut fehlgeschlagen!");
+            Serial.println("Bluetooth scan failed again!");
             return false;
         }
     }
 
     int count = scanResults->getCount();
-    Serial.printf("%d Geraete gefunden:\n", count);
+    Serial.printf("%d devices found:\n", count);
 
     // List all devices
     for (int i = 0; i < count; i++) {
@@ -126,7 +126,7 @@ bool NelkoP21Printer::scanAndConnect() {
         if (!device) continue;
 
         String name = device->getName().c_str();
-        if (name.length() == 0) name = "(unbekannt)";
+        if (name.length() == 0) name = "(unknown)";
 
         uint8_t addr[6];
         memcpy(addr, device->getAddress().getNative(), 6);
@@ -143,13 +143,13 @@ bool NelkoP21Printer::scanAndConnect() {
         String name = device->getName().c_str();
         if (name.indexOf("P21") < 0 && name.indexOf("Nelko") < 0) continue;
 
-        Serial.printf("Verbinde mit Drucker: %s\n", name.c_str());
+        Serial.printf("Connecting to printer: %s\n", name.c_str());
 
         uint8_t addr[6];
         memcpy(addr, device->getAddress().getNative(), 6);
 
         if (_serialBT.connect(addr)) {
-            Serial.println("Drucker verbunden!\n");
+            Serial.println("Printer connected!\n");
             _connected = true;
             _lastSeen = millis();
 
@@ -164,7 +164,7 @@ bool NelkoP21Printer::scanAndConnect() {
         }
     }
 
-    Serial.println("Kein Drucker gefunden.");
+    Serial.println("No printer found.");
     return false;
 }
 
@@ -181,7 +181,7 @@ void NelkoP21Printer::disconnect() {
     if (_connected) {
         _serialBT.disconnect();
         _connected = false;
-        Serial.println("Drucker getrennt.");
+        Serial.println("Printer disconnected.");
     }
 }
 
@@ -215,21 +215,21 @@ int NelkoP21Printer::getBattery() {
 
             if (level >= 0 && level <= 100) {
                 _battery = level;
-                Serial.printf("Batterie: %d%%\n", _battery);
+                Serial.printf("Battery: %d%%\n", _battery);
             } else {
-                Serial.printf("Batterie raw: 0x%02X (%d)\n", raw, level);
+                Serial.printf("Battery raw: 0x%02X (%d)\n", raw, level);
             }
             return _battery;
         }
     }
 
-    Serial.println("Batterie: keine Antwort");
+    Serial.println("Battery: no response");
     return _battery;
 }
 
 void NelkoP21Printer::queryConfig() {
     if (!_connected) {
-        Serial.println("Nicht verbunden!");
+        Serial.println("Not connected!");
         return;
     }
 
@@ -249,20 +249,20 @@ void NelkoP21Printer::queryConfig() {
     while (_serialBT.available()) _serialBT.read();
 
     if (count < 10) {
-        Serial.println("Config: (unvollstaendige Antwort)");
+        Serial.println("Config: (incomplete response)");
         return;
     }
 
-    Serial.println("=== Drucker-Konfiguration ===");
-    Serial.printf("  Protokoll:    %s\n", config[0] == 0 ? "TSPL2" : "Unbekannt");
+    Serial.println("=== Printer Configuration ===");
+    Serial.printf("  Protocol:     %s\n", config[0] == 0 ? "TSPL2" : "Unknown");
     Serial.printf("  DPI:          %d\n", config[1]);
     Serial.printf("  Hardware:     v%d.%d.%d\n", config[2], config[3], config[4]);
     Serial.printf("  Firmware:     v%d.%d.%d\n", config[5], config[6], config[7]);
 
-    const char* timeouts[] = {"Nie", "15 Min", "30 Min", "60 Min"};
+    const char* timeouts[] = {"Never", "15 min", "30 min", "60 min"};
     int timeoutIdx = config[8] < 4 ? config[8] : 0;
     Serial.printf("  Auto-Off:     %s\n", timeouts[timeoutIdx]);
-    Serial.printf("  Beep:         %s\n", config[9] ? "An" : "Aus");
+    Serial.printf("  Beep:         %s\n", config[9] ? "On" : "Off");
 
     // Raw hex dump
     Serial.print("  Raw:          ");
@@ -270,17 +270,17 @@ void NelkoP21Printer::queryConfig() {
         Serial.printf("%02X ", config[i]);
     }
     Serial.println();
-    Serial.println("==============================");
+    Serial.println("=============================");
 }
 
 void NelkoP21Printer::queryStatus() {
     if (!_connected) {
-        Serial.println("Nicht verbunden!");
+        Serial.println("Not connected!");
         return;
     }
 
     clearBuffer();
-    Serial.println("Buffer leeren...fertig.\r\n");
+    Serial.println("Clearing buffer...done.\r\n");
 
     // Send ESC!o
     _serialBT.print("\x1B!o\r\n");
@@ -292,31 +292,31 @@ void NelkoP21Printer::queryStatus() {
     for (int i = 0; i < count; i++) {
         Serial.print(response[i]);
     }
-    Serial.println("\r\n...fertig.\r\n");
+    Serial.println("\r\n...done.\r\n");
 
     // Discard rest
-    Serial.println("Rest verwerfen...");
+    Serial.println("Discarding rest...");
     while (_serialBT.available()) {
         Serial.print(_serialBT.read());
     }
-    Serial.println("...fertig.\r\n");
+    Serial.println("...done.\r\n");
 
     if (count < 1) {
-        Serial.println("Status: (keine Antwort)");
+        Serial.println("Status: (no response)");
         return;
     }
 
-    Serial.println("=== Drucker-Status ===");
+    Serial.println("=== Printer Status ===");
 
     if (response[0] == 0x00) {
         Serial.println("  Status:       OK");
         if (count >= 14) {
-            Serial.printf("  Papier:       %d x %d mm\n", response[13], response[11]);
+            Serial.printf("  Paper:        %d x %d mm\n", response[13], response[11]);
         }
     } else if (response[0] == 0x04) {
-        Serial.println("  Status:       FEHLER - Kein Papier!");
+        Serial.println("  Status:       ERROR - No paper!");
     } else {
-        Serial.printf("  Status:       Unbekannt (0x%02X)\n", response[0]);
+        Serial.printf("  Status:       Unknown (0x%02X)\n", response[0]);
     }
 
     // Raw hex dump
@@ -365,7 +365,7 @@ const char* NelkoP21Printer::checkReady() {
         } else if (response[0] == 0x04) {
             return "no paper";
         } else {
-            Serial.printf("Unbekannter Status: 0x%02X\n", response[0]);
+            Serial.printf("Unknown status: 0x%02X\n", response[0]);
             return nullptr;  // Unknown but continue
         }
     }
@@ -376,7 +376,7 @@ const char* NelkoP21Printer::checkReady() {
 
 void NelkoP21Printer::sendBitmap(const uint8_t* bitmap) {
     if (!_connected) {
-        Serial.println("Drucker nicht verbunden!");
+        Serial.println("Printer not connected!");
         return;
     }
 
@@ -402,18 +402,18 @@ void NelkoP21Printer::sendBitmap(const uint8_t* bitmap) {
 
 void NelkoP21Printer::sendCommand(const char* cmd) {
     if (!_connected) {
-        Serial.println("Nicht verbunden!");
+        Serial.println("Not connected!");
         return;
     }
 
     clearBuffer();
 
-    Serial.printf("Sende: %s\n", cmd);
+    Serial.printf("Sending: %s\n", cmd);
     _serialBT.print(cmd);
     _serialBT.print("\r\n");
     delay(500);
 
-    Serial.print("Antwort: ");
+    Serial.print("Response: ");
     bool gotData = false;
     unsigned long start = millis();
     while (millis() - start < 1000) {
@@ -424,7 +424,7 @@ void NelkoP21Printer::sendCommand(const char* cmd) {
         }
     }
     if (!gotData) {
-        Serial.print("(keine)");
+        Serial.print("(none)");
     }
     Serial.println();
 }

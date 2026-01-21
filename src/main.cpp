@@ -25,46 +25,57 @@ MqttManager mqttManager;
 bool portalActive = false;
 
 // ============================================================
+// Command Handler Types
+// ============================================================
+
+using CommandHandler = void (*)();
+
+struct Command {
+    const char* name;
+    CommandHandler handler;
+};
+
+// ============================================================
 // Print Functions
 // ============================================================
 
 const char* printLabel(const char* link, const char* name, const char* id, const char* qrSize = nullptr) {
     if (!printer || !printer->isConnected()) {
-        Serial.println("Drucker nicht verbunden!");
+        Serial.println("Printer not connected!");
         return "printer not connected";
     }
 
     const char* statusError = printer->checkReady();
     if (statusError) {
-        Serial.printf("Drucker-Fehler: %s\n", statusError);
+        Serial.printf("Printer error: %s\n", statusError);
         return statusError;
     }
 
     QRSize size = QRCodeRenderer::sizeFromString(qrSize);
     const char* sizeStr = (size == QRSize::Small) ? "S" : (size == QRSize::Medium) ? "M" : "L";
-    Serial.printf("Drucke Label: %s / %s (QR: %s)\n", name, id, sizeStr);
+    Serial.printf("Printing label: %s / %s (QR: %s)\n", name, id, sizeStr);
 
     LabelImage label(printer->getLabelWidth(), printer->getLabelHeight());
     if (!label.generate(link, name, id, size)) {
-        Serial.printf("Label-Fehler: %s\n", label.getError());
+        Serial.printf("Label error: %s\n", label.getError());
         return label.getError();
     }
 
     char* dataUrl = label.toDataURL();
     if (dataUrl) {
-        Serial.println("Label-Vorschau:");
+        Serial.println("Label preview:");
         Serial.println(dataUrl);
         free(dataUrl);
     }
 
     printer->sendBitmap(label.getData());
-    Serial.println("Label gesendet!");
+    Serial.println("Label sent!");
     return nullptr;
 }
 
 void printFrame() {
     if (!printer || !printer->isConnected()) {
-        Serial.println("Drucker nicht verbunden!");
+        Serial.println("Printer not connected!");
         return;
     }
 
@@ -86,7 +97,7 @@ void printFrame() {
 
     printer->sendBitmap(bitmap);
     free(bitmap);
-    Serial.println("Rahmen gesendet!");
+    Serial.println("Frame sent!");
 }
 
 // ============================================================
@@ -108,17 +119,17 @@ void sendResult(const char* printId, bool success, const char* error = nullptr) 
     char buffer[256];
     serializeJson(doc, buffer);
     mqttManager.publishResult(buffer);
-    Serial.printf("Result gesendet: %s\n", buffer);
+    Serial.printf("Result sent: %s\n", buffer);
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    Serial.printf("MQTT Nachricht auf %s\n", topic);
+    Serial.printf("MQTT message on %s\n", topic);
 
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, payload, length);
 
     if (err) {
-        Serial.printf("JSON Fehler: %s\n", err.c_str());
+        Serial.printf("JSON error: %s\n", err.c_str());
         sendResult(nullptr, false, "invalid JSON");
         return;
     }
@@ -156,7 +167,7 @@ void publishStatus() {
     char buffer[256];
     serializeJson(doc, buffer);
     mqttManager.publishStatus(buffer);
-    Serial.printf("Status gesendet: %s\n", buffer);
+    Serial.printf("Status sent: %s\n", buffer);
 }
 
 // ============================================================
@@ -195,29 +206,80 @@ void stopConfigPortal() {
 void printHelp() {
     Serial.println("\n=== Nelko P21 MQTT Printer ===");
     Serial.println("Status:");
-    Serial.printf("  WiFi: %s (%d dBm)\n", wifiManager.isConnected() ? "Verbunden" : "Getrennt", wifiManager.getRSSI());
-    Serial.printf("  MQTT: %s\n", mqttManager.isConnected() ? "Verbunden" : "Getrennt");
-    Serial.printf("  Drucker: %s\n", (printer && printer->isConnected()) ? "Verbunden" : "Getrennt");
+    Serial.printf("  WiFi: %s (%d dBm)\n", wifiManager.isConnected() ? "Connected" : "Disconnected", wifiManager.getRSSI());
+    Serial.printf("  MQTT: %s\n", mqttManager.isConnected() ? "Connected" : "Disconnected");
+    Serial.printf("  Printer: %s\n", (printer && printer->isConnected()) ? "Connected" : "Disconnected");
     if (printer) {
         int battery = printer->getBattery();
         if (battery >= 0) {
-            Serial.printf("  Batterie: %d%%\n", battery);
+            Serial.printf("  Battery: %d%%\n", battery);
         }
     }
-    Serial.println("Befehle:");
-    Serial.println("  scan        - Drucker suchen & verbinden");
-    Serial.println("  disconnect  - Drucker trennen");
-    Serial.println("  status      - Drucker-Status (Papier, etc.)");
-    Serial.println("  config      - Drucker-Konfiguration");
-    Serial.println("  battery     - Batterie abfragen");
-    Serial.println("  frame       - Test: Rahmen drucken");
-    Serial.println("  qrcode      - Test: QR-Code drucken");
-    Serial.println("  wifi        - WiFi neu verbinden");
-    Serial.println("  mqtt        - MQTT neu verbinden");
-    Serial.println("  setup       - Konfigurations-Portal starten");
-    Serial.println("  clearconfig - Konfiguration loeschen & neustarten");
-    Serial.println("  help        - Diese Hilfe");
+    Serial.println("Commands:");
+    Serial.println("  scan        - Scan & connect printer");
+    Serial.println("  disconnect  - Disconnect printer");
+    Serial.println("  status      - Printer status (paper, etc.)");
+    Serial.println("  config      - Printer configuration");
+    Serial.println("  battery     - Query battery level");
+    Serial.println("  frame       - Test: Print frame");
+    Serial.println("  qrcode      - Test: Print QR code");
+    Serial.println("  wifi        - Reconnect WiFi");
+    Serial.println("  mqtt        - Reconnect MQTT");
+    Serial.println("  setup       - Start configuration portal");
+    Serial.println("  clearconfig - Clear config & restart");
+    Serial.println("  help        - Show this help");
     Serial.println("==============================\n");
+}
+
+// ============================================================
+// Command Handlers
+// ============================================================
+
+void cmdScan() { if (printer) printer->connect(); }
+void cmdDisconnect() { if (printer) printer->disconnect(); }
+void cmdFrame() { printFrame(); }
+void cmdQrcode() { printLabel("https://zeug.makerspacebonn.de/i/1259", "Test Item", "1259", "L"); }
+void cmdWifi() { wifiManager.connect(); }
+void cmdMqtt() { mqttManager.connect(); }
+void cmdHelp() { printHelp(); }
+void cmdBattery() { if (printer) printer->getBattery(); }
+void cmdConfig() { if (printer) printer->queryConfig(); }
+void cmdReady() { if (printer) printer->queryStatus(); }
+void cmdSetup() { startConfigPortal(); }
+void cmdClearConfig() {
+    Serial.println("Clearing configuration and restarting...");
+    configManager.clear();
+    delay(1000);
+    ESP.restart();
+}
+
+// Command lookup table
+const Command commands[] = {
+    {"scan", cmdScan},
+    {"disconnect", cmdDisconnect},
+    {"frame", cmdFrame},
+    {"qrcode", cmdQrcode},
+    {"wifi", cmdWifi},
+    {"mqtt", cmdMqtt},
+    {"help", cmdHelp},
+    {"?", cmdHelp},
+    {"status", cmdHelp},
+    {"battery", cmdBattery},
+    {"config", cmdConfig},
+    {"ready", cmdReady},
+    {"setup", cmdSetup},
+    {"clearconfig", cmdClearConfig},
+};
+const int commandCount = sizeof(commands) / sizeof(commands[0]);
+
+bool executeCommand(const String& cmd) {
+    for (int i = 0; i < commandCount; i++) {
+        if (cmd == commands[i].name) {
+            commands[i].handler();
+            return true;
+        }
+    }
+    return false;
 }
 
 // ============================================================
@@ -267,7 +329,7 @@ void setup() {
     // Initialize printer
     printer = new NelkoP21Printer();
     if (printer->connect()) {
-        Serial.println("Drucker bereit.");
+        Serial.println("Printer ready.");
     }
 }
 
@@ -310,51 +372,12 @@ void loop() {
         String cmdLower = cmd;
         cmdLower.toLowerCase();
 
-        if (cmdLower == "scan") {
-            if (printer) printer->connect();
-        }
-        else if (cmdLower == "disconnect") {
-            if (printer) printer->disconnect();
-        }
-        else if (cmdLower == "frame") {
-            printFrame();
-        }
-        else if (cmdLower == "qrcode") {
-            printLabel("https://zeug.makerspacebonn.de/i/1259", "Test Item", "1259", "L");
-        }
-        else if (cmdLower == "wifi") {
-            wifiManager.connect();
-        }
-        else if (cmdLower == "mqtt") {
-            mqttManager.connect();
-        }
-        else if (cmdLower == "help" || cmdLower == "?") {
-            printHelp();
-        }
-        else if (cmdLower == "status") {
-            printHelp();
-        }
-        else if (cmdLower == "battery") {
-            if (printer) printer->getBattery();
-        }
-        else if (cmdLower == "config") {
-            if (printer) printer->queryConfig();
-        }
-        else if (cmdLower == "ready") {
-            if (printer) printer->queryStatus();
-        }
-        else if (cmdLower == "setup") {
-            // Start configuration portal manually
-            startConfigPortal();
-        }
-        else if (cmdLower == "clearconfig") {
-            Serial.println("Clearing configuration and restarting...");
-            configManager.clear();
-            delay(1000);
-            ESP.restart();
-        }
-        else if (cmdLower.startsWith("send ")) {
-            if (printer) printer->sendCommand(cmd.substring(5).c_str());
+        // Try command table lookup first
+        if (!executeCommand(cmdLower)) {
+            // Handle commands with arguments
+            if (cmdLower.startsWith("send ")) {
+                if (printer) printer->sendCommand(cmd.substring(5).c_str());
+            }
         }
     }
 
