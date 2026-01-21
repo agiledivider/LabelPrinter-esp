@@ -36,9 +36,45 @@
   - Session timeout for security
   - Password recovery mechanism (e.g., physical button hold)
 
-### F005: Hardware Button Configuration Reset
+### F005: Hardware Button Configuration Reset ✅
 - Use existing ESP32 buttons (BOOT/EN) to trigger configuration reset
 - Hold button during boot for X seconds to clear config and start portal
 - Visual feedback via LED or serial output during hold
 - Provides recovery option when network/serial access unavailable
 - Consider: different hold durations for different actions (reset vs portal only)
+
+### F006: Bluetooth Printer Auto-Reconnect
+- Automatically detect when printer disconnects (power off, out of range, sleep)
+- Periodic reconnection attempts with configurable interval
+- Exponential backoff to avoid excessive scanning
+- Status reporting via MQTT when connection state changes
+- Queue print jobs while disconnected, execute on reconnect
+- Options:
+  - Max reconnect attempts before giving up
+  - Reconnect interval (e.g., 10-60 seconds)
+  - MQTT notification on disconnect/reconnect events
+- Consider: battery drain from continuous BT scanning
+
+### F007: Enhanced Logging System
+- Configurable log levels (DEBUG, INFO, WARN, ERROR)
+- Multiple log outputs: Serial, MQTT, web interface
+- Persistent log buffer in SPIFFS/LittleFS for post-mortem analysis
+- Timestamped entries with uptime or RTC time
+- Remote log level adjustment via MQTT command
+- Options:
+  - Log rotation with configurable max size
+  - Filter logs by component (WiFi, MQTT, Printer, etc.)
+  - Stream logs to remote syslog server
+- Consider: memory constraints on ESP32 for log buffering
+
+### F008: Encrypted MQTT Messages
+- End-to-end encryption of MQTT payloads (independent of TLS transport)
+- Symmetric encryption using AES-256-GCM or ChaCha20-Poly1305
+- Pre-shared key configured via config portal
+- Message authentication to prevent tampering
+- Options:
+  - Key rotation mechanism
+  - Nonce/IV management to prevent replay attacks
+  - Fallback to unencrypted mode if key not configured
+  - Encrypt only sensitive fields vs entire payload
+- Consider: ESP32 hardware crypto acceleration for performance
