@@ -53,6 +53,9 @@ bool MqttManager::connect() {
         return false;
     }
 
+    // Set buffer size for larger messages (default 256 is too small)
+    _mqttClient.setBufferSize(512);
+
     // Configure client based on SSL setting
     if (_useSsl) {
         _wifiClientSecure.setInsecure();

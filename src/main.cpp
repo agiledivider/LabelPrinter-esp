@@ -145,10 +145,18 @@ void handleLogCommand(JsonDocument& doc) {
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
+    // IMPORTANT: Copy payload BEFORE any logging!
+    // MQTT logging can corrupt the PubSubClient's internal buffer.
+    static char payloadCopy[512];
+    size_t copyLen = length < sizeof(payloadCopy) - 1 ? length : sizeof(payloadCopy) - 1;
+    memcpy(payloadCopy, payload, copyLen);
+    payloadCopy[copyLen] = '\0';
+
     LOG_INFOF(MQTT, "Message on %s (%d bytes)", topic, length);
+    LOG_INFOF(MQTT, "Raw payload: %s", payloadCopy);
 
     JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, payload, length);
+    DeserializationError err = deserializeJson(doc, payloadCopy, copyLen);
 
     if (err) {
         LOG_ERRORF(MQTT, "JSON parse error: %s", err.c_str());
