@@ -1,4 +1,5 @@
 #include "NelkoP21Printer.h"
+#include "TSPL2.h"
 
 // Static instance pointer for callback
 NelkoP21Printer* NelkoP21Printer::_instance = nullptr;
@@ -193,12 +194,12 @@ int NelkoP21Printer::getBattery() {
 
     clearBuffer();
 
-    // Send battery query (command: BATTERY?)
-    _serialBT.print("BATTERY?\r\n");
-    delay(300);
+    // Send battery query
+    _serialBT.print(TSPL2::Query::BATTERY);
+    delay(TSPL2::Timeout::BATTERY_RESPONSE);
 
-    // Skip echo (8 chars: "BATTERY?")
-    skipEcho(8, 500);
+    // Skip echo
+    skipEcho(TSPL2::Query::BATTERY_ECHO_LEN, TSPL2::Timeout::QUERY);
 
     // Read 2 response bytes (first byte = BCD percentage)
     unsigned long start = millis();
@@ -235,38 +236,39 @@ void NelkoP21Printer::queryConfig() {
 
     clearBuffer();
 
-    _serialBT.print("CONFIG?\r\n");
+    _serialBT.print(TSPL2::Query::CONFIG);
     delay(200);
 
-    // Skip echo (7 chars: "CONFIG?")
-    skipEcho(7, 500);
+    // Skip echo
+    skipEcho(TSPL2::Query::CONFIG_ECHO_LEN, TSPL2::Timeout::QUERY);
 
-    // Read 10 config bytes
-    uint8_t config[10];
-    int count = readWithTimeout(config, 10, 500);
+    // Read config bytes
+    uint8_t config[TSPL2::Response::CONFIG_SIZE];
+    int count = readWithTimeout(config, TSPL2::Response::CONFIG_SIZE, TSPL2::Timeout::QUERY);
 
     // Discard rest
     while (_serialBT.available()) _serialBT.read();
 
-    if (count < 10) {
+    if (count < TSPL2::Response::CONFIG_SIZE) {
         Serial.println("Config: (incomplete response)");
         return;
     }
 
+    using namespace TSPL2::ConfigIndex;
     Serial.println("=== Printer Configuration ===");
-    Serial.printf("  Protocol:     %s\n", config[0] == 0 ? "TSPL2" : "Unknown");
-    Serial.printf("  DPI:          %d\n", config[1]);
-    Serial.printf("  Hardware:     v%d.%d.%d\n", config[2], config[3], config[4]);
-    Serial.printf("  Firmware:     v%d.%d.%d\n", config[5], config[6], config[7]);
+    Serial.printf("  Protocol:     %s\n", config[PROTOCOL] == 0 ? "TSPL2" : "Unknown");
+    Serial.printf("  DPI:          %d\n", config[DPI]);
+    Serial.printf("  Hardware:     v%d.%d.%d\n", config[HW_MAJOR], config[HW_MINOR], config[HW_PATCH]);
+    Serial.printf("  Firmware:     v%d.%d.%d\n", config[FW_MAJOR], config[FW_MINOR], config[FW_PATCH]);
 
     const char* timeouts[] = {"Never", "15 min", "30 min", "60 min"};
-    int timeoutIdx = config[8] < 4 ? config[8] : 0;
+    int timeoutIdx = config[AUTO_OFF] < 4 ? config[AUTO_OFF] : 0;
     Serial.printf("  Auto-Off:     %s\n", timeouts[timeoutIdx]);
-    Serial.printf("  Beep:         %s\n", config[9] ? "On" : "Off");
+    Serial.printf("  Beep:         %s\n", config[BEEP] ? "On" : "Off");
 
     // Raw hex dump
     Serial.print("  Raw:          ");
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < TSPL2::Response::CONFIG_SIZE; i++) {
         Serial.printf("%02X ", config[i]);
     }
     Serial.println();
@@ -282,13 +284,13 @@ void NelkoP21Printer::queryStatus() {
     clearBuffer();
     Serial.println("Clearing buffer...done.\r\n");
 
-    // Send ESC!o
-    _serialBT.print("\x1B!o\r\n");
+    // Send status query (ESC!o)
+    _serialBT.print(TSPL2::Query::STATUS);
 
-    // Read 16 byte response
-    uint8_t response[16];
+    // Read response
+    uint8_t response[TSPL2::Response::STATUS_SIZE];
     Serial.println("Response...");
-    int count = readWithTimeout(response, 16, 1000);
+    int count = readWithTimeout(response, TSPL2::Response::STATUS_SIZE, TSPL2::Timeout::STATUS);
     for (int i = 0; i < count; i++) {
         Serial.print(response[i]);
     }
@@ -308,12 +310,12 @@ void NelkoP21Printer::queryStatus() {
 
     Serial.println("=== Printer Status ===");
 
-    if (response[0] == 0x00) {
+    if (response[0] == TSPL2::Status::OK) {
         Serial.println("  Status:       OK");
         if (count >= 14) {
             Serial.printf("  Paper:        %d x %d mm\n", response[13], response[11]);
         }
-    } else if (response[0] == 0x04) {
+    } else if (response[0] == TSPL2::Status::NO_PAPER) {
         Serial.println("  Status:       ERROR - No paper!");
     } else {
         Serial.printf("  Status:       Unknown (0x%02X)\n", response[0]);
@@ -338,19 +340,16 @@ const char* NelkoP21Printer::checkReady() {
 
     clearBuffer();
 
-    // Query status with ESC!o (0x1B 0x21 0x6F)
-    _serialBT.write(0x1B);
-    _serialBT.write('!');
-    _serialBT.write('o');
-    _serialBT.print("\r\n");
-    delay(300);
+    // Query status (ESC!o)
+    _serialBT.print(TSPL2::Query::STATUS);
+    delay(TSPL2::Timeout::BATTERY_RESPONSE);
 
-    // Read 16 byte response
-    uint8_t response[16];
-    int count = readWithTimeout(response, 16, 500);
+    // Read response
+    uint8_t response[TSPL2::Response::STATUS_SIZE];
+    int count = readWithTimeout(response, TSPL2::Response::STATUS_SIZE, TSPL2::Timeout::QUERY);
 
     Serial.print("Response (Hex): ");
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < TSPL2::Response::STATUS_SIZE; i++) {
         Serial.printf("%02X ", response[i]);
     }
     Serial.println();
@@ -359,10 +358,9 @@ const char* NelkoP21Printer::checkReady() {
     while (_serialBT.available()) _serialBT.read();
 
     if (count >= 1) {
-        // Byte 0 = Status: 0x00 = OK, 0x04 = Paper error
-        if (response[0] == 0x00) {
+        if (response[0] == TSPL2::Status::OK) {
             return nullptr;  // OK
-        } else if (response[0] == 0x04) {
+        } else if (response[0] == TSPL2::Status::NO_PAPER) {
             return "no paper";
         } else {
             Serial.printf("Unknown status: 0x%02X\n", response[0]);
@@ -382,20 +380,14 @@ void NelkoP21Printer::sendBitmap(const uint8_t* bitmap) {
 
     // TSPL2 command sequence
     char header[128];
-    snprintf(header, sizeof(header),
-        "SIZE %.1f mm,%.1f mm\r\n"
-        "GAP %.1f mm,0 mm\r\n"
-        "DIRECTION 0,0\r\n"
-        "DENSITY 15\r\n"
-        "CLS\r\n"
-        "BITMAP 0,0,%d,%d,1,",
+    snprintf(header, sizeof(header), TSPL2::BITMAP_HEADER_FMT,
         LABEL_WIDTH_MM, LABEL_HEIGHT_MM,
         LABEL_GAP_MM,
         BYTES_PER_ROW, LABEL_HEIGHT);
 
     _serialBT.print(header);
     _serialBT.write(bitmap, BITMAP_SIZE);
-    _serialBT.print("\r\nPRINT 1\r\n");
+    _serialBT.print(TSPL2::PRINT_COMMAND);
 
     _lastSeen = millis();
 }
@@ -411,12 +403,12 @@ void NelkoP21Printer::sendCommand(const char* cmd) {
     Serial.printf("Sending: %s\n", cmd);
     _serialBT.print(cmd);
     _serialBT.print("\r\n");
-    delay(500);
+    delay(TSPL2::Timeout::QUERY);
 
     Serial.print("Response: ");
     bool gotData = false;
     unsigned long start = millis();
-    while (millis() - start < 1000) {
+    while (millis() - start < TSPL2::Timeout::COMMAND) {
         if (_serialBT.available()) {
             uint8_t c = _serialBT.read();
             Serial.printf("[0x%02X '%c'] ", c, (c >= 32 && c < 127) ? c : '.');

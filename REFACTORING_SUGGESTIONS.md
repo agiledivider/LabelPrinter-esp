@@ -25,6 +25,13 @@ Created `StringUtils.h` with `safeCopy()` helper function.
 - Replaced 21 `strncpy` + null-termination patterns across 4 files
 - Updated: MqttManager.cpp, WiFiManager.cpp, ConfigManager.cpp, ConfigPortal.cpp
 
+### 5. Extract Protocol Constants ✅
+Created `TSPL2.h` namespace with protocol constants.
+- Query commands: `BATTERY`, `CONFIG`, `STATUS` with echo lengths
+- Status codes: `OK`, `NO_PAPER`
+- Response sizes, timeouts, config byte indices
+- Bitmap header format and print command
+
 ---
 
 ## Remaining
@@ -95,18 +102,7 @@ Direct `Serial.println()` scattered everywhere.
 #define LOG_DEBUG(fmt, ...) Serial.printf("[DEBUG] " fmt "\n", ##__VA_ARGS__)
 ```
 
-### 10. Extract Protocol Constants (NelkoP21Printer.cpp)
-TSPL2 commands as magic strings.
-
-```cpp
-namespace TSPL2 {
-    const char* QUERY_BATTERY = "BATTERY?\r\n";
-    const char* QUERY_STATUS = "\x1B!o\r\n";
-    const char* QUERY_CONFIG = "CONFIG?\r\n";
-}
-```
-
-### 11. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
+### 10. Consider Smart Pointers (main.cpp:21, LabelImage.cpp)
 Raw pointers with manual memory management.
 
 ```cpp
@@ -122,11 +118,10 @@ std::unique_ptr<uint8_t[]> _bitmap;
 ---
 
 ## Priority Order (Suggested)
-1. #10 - Extract protocol constants (improves readability)
-2. #9 - Create logging abstraction (enables future log levels)
-3. #8 - Add error enum (type safety)
-4. #6 - Move printFrame to LabelImage (better encapsulation)
-5. #5 - Extract JSON building (reduces duplication)
-6. #7 - Extract HTML to PROGMEM (saves RAM)
-7. #4 - Remove singleton (architectural improvement)
-8. #11 - Smart pointers (modern C++, but may have ESP32 limitations)
+1. #9 - Create logging abstraction (enables future log levels)
+2. #8 - Add error enum (type safety)
+3. #6 - Move printFrame to LabelImage (better encapsulation)
+4. #5 - Extract JSON building (reduces duplication)
+5. #7 - Extract HTML to PROGMEM (saves RAM)
+6. #4 - Remove singleton (architectural improvement)
+7. #10 - Smart pointers (modern C++, but may have ESP32 limitations)
