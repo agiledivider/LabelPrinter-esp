@@ -1,7 +1,5 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "config.h"
 #include "ConfigManager.h"
@@ -11,6 +9,7 @@
 #include "Printer.h"
 #include "NelkoP21Printer.h"
 #include "WiFiManager.h"
+#include "MqttManager.h"
 
 // ============================================================
 // Global Objects
@@ -21,11 +20,8 @@ ConfigPortal* configPortal = nullptr;
 
 Printer* printer = nullptr;
 WiFiManager wifiManager;
-WiFiClient wifiClient;
-WiFiClientSecure wifiClientSecure;
-PubSubClient mqttClient;
+MqttManager mqttManager;
 
-bool mqttConnected = false;
 bool portalActive = false;
 
 // ============================================================
@@ -98,9 +94,7 @@ void printFrame() {
 // ============================================================
 
 void sendResult(const char* printId, bool success, const char* error = nullptr) {
-    if (!mqttConnected) return;
-
-    const ConfigManager::Config& config = configManager.getConfig();
+    if (!mqttManager.isConnected()) return;
 
     JsonDocument doc;
     if (printId && strlen(printId) > 0) {
@@ -113,7 +107,7 @@ void sendResult(const char* printId, bool success, const char* error = nullptr) 
 
     char buffer[256];
     serializeJson(doc, buffer);
-    mqttClient.publish(config.mqttTopicResult, buffer);
+    mqttManager.publishResult(buffer);
     Serial.printf("Result gesendet: %s\n", buffer);
 }
 
@@ -139,63 +133,12 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     sendResult(printId, error == nullptr, error);
 }
 
-void connectMQTT() {
-    if (!wifiManager.isConnected()) return;
-
-    const ConfigManager::Config& config = configManager.getConfig();
-
-    if (config.mqttUseSsl) {
-        wifiClientSecure.setInsecure();
-        mqttClient.setClient(wifiClientSecure);
-        Serial.printf("Verbinde mit MQTT (SSL) %s:%d...\n", config.mqttServer, config.mqttPort);
-    } else {
-        mqttClient.setClient(wifiClient);
-        Serial.printf("Verbinde mit MQTT %s:%d...\n", config.mqttServer, config.mqttPort);
-    }
-
-    mqttClient.setServer(config.mqttServer, config.mqttPort);
-    mqttClient.setCallback(mqttCallback);
-
-    if (mqttClient.connect(config.deviceName, config.mqttUser, config.mqttPassword)) {
-        Serial.println("MQTT verbunden!");
-        mqttClient.subscribe(config.mqttTopicPrint);
-        Serial.printf("Subscribed: %s\n", config.mqttTopicPrint);
-        mqttConnected = true;
-    } else {
-        Serial.printf("MQTT Fehler: %d\n", mqttClient.state());
-        mqttConnected = false;
-    }
-}
-
-unsigned long lastMqttRetry = 0;
-const unsigned long MQTT_RETRY_INTERVAL = 10000;
-
-void checkMQTT() {
-    if (!wifiManager.isConnected()) return;
-
-    const ConfigManager::Config& config = configManager.getConfig();
-
-    if (!mqttClient.connected()) {
-        mqttConnected = false;
-        unsigned long now = millis();
-        if (now - lastMqttRetry >= MQTT_RETRY_INTERVAL) {
-            lastMqttRetry = now;
-            if (wifiManager.checkDns(config.mqttServer)) {
-                connectMQTT();
-            }
-        }
-    } else {
-        mqttClient.loop();
-    }
-}
-
 unsigned long lastStatusTime = 0;
 const unsigned long STATUS_INTERVAL = 30000;
 
 void publishStatus() {
-    if (!mqttConnected || !printer) return;
+    if (!mqttManager.isConnected() || !printer) return;
 
-    const ConfigManager::Config& config = configManager.getConfig();
     int battery = printer->getBattery();
 
     JsonDocument doc;
@@ -212,7 +155,7 @@ void publishStatus() {
 
     char buffer[256];
     serializeJson(doc, buffer);
-    mqttClient.publish(config.mqttTopicStatus, buffer);
+    mqttManager.publishStatus(buffer);
     Serial.printf("Status gesendet: %s\n", buffer);
 }
 
@@ -253,7 +196,7 @@ void printHelp() {
     Serial.println("\n=== Nelko P21 MQTT Printer ===");
     Serial.println("Status:");
     Serial.printf("  WiFi: %s (%d dBm)\n", wifiManager.isConnected() ? "Verbunden" : "Getrennt", wifiManager.getRSSI());
-    Serial.printf("  MQTT: %s\n", mqttConnected ? "Verbunden" : "Getrennt");
+    Serial.printf("  MQTT: %s\n", mqttManager.isConnected() ? "Verbunden" : "Getrennt");
     Serial.printf("  Drucker: %s\n", (printer && printer->isConnected()) ? "Verbunden" : "Getrennt");
     if (printer) {
         int battery = printer->getBattery();
@@ -313,8 +256,13 @@ void setup() {
     wifiManager.setCredentials(config.wifiSsid, config.wifiPassword);
     wifiManager.connect();
 
-    // Connect MQTT (before Bluetooth - SSL needs RAM during handshake)
-    connectMQTT();
+    // Initialize and connect MQTT (before Bluetooth - SSL needs RAM during handshake)
+    mqttManager.begin(wifiManager);
+    mqttManager.setConfig(config.mqttServer, config.mqttPort, config.mqttUseSsl,
+                          config.mqttUser, config.mqttPassword, config.deviceName);
+    mqttManager.setTopics(config.mqttTopicPrint, config.mqttTopicStatus, config.mqttTopicResult);
+    mqttManager.setCallback(mqttCallback);
+    mqttManager.connect();
 
     // Initialize printer
     printer = new NelkoP21Printer();
@@ -347,7 +295,7 @@ void loop() {
 
     // Normal operation
     wifiManager.loop();
-    checkMQTT();
+    mqttManager.loop();
 
     // Periodic status
     if (millis() - lastStatusTime >= STATUS_INTERVAL) {
@@ -378,7 +326,7 @@ void loop() {
             wifiManager.connect();
         }
         else if (cmdLower == "mqtt") {
-            connectMQTT();
+            mqttManager.connect();
         }
         else if (cmdLower == "help" || cmdLower == "?") {
             printHelp();
