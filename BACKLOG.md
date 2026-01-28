@@ -78,3 +78,23 @@
   - Fallback to unencrypted mode if key not configured
   - Encrypt only sensitive fields vs entire payload
 - Consider: ESP32 hardware crypto acceleration for performance
+
+### F009: RGB LED Status Indicators (WS2812B)
+- 3 WS2812B addressable RGB LEDs showing connection status for WLAN, MQTT, and Bluetooth printer
+- Color coding:
+  - Green: connected / operational
+  - Red: disconnected / error
+  - Blue (blinking): connecting / attempting reconnect
+  - Off: feature disabled or not initialized
+- LED assignment:
+  - LED 0: WLAN connection status
+  - LED 1: MQTT broker connection status
+  - LED 2: Bluetooth printer connection status
+- Single data pin for all 3 LEDs (WS2812B daisy-chain)
+- Options:
+  - Configurable data GPIO pin via config portal
+  - Brightness control to reduce power consumption
+  - Disable LEDs via MQTT command or config setting
+  - Additional patterns (e.g., fast blink for error, slow blink for reconnecting)
+- Consider: 5V vs 3.3V logic level shifting for WS2812B data line
+- Consider: library choice (FastLED vs Adafruit NeoPixel)
