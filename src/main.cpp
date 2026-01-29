@@ -14,6 +14,7 @@
 #include "JsonHelpers.h"
 #include "LogManager.h"
 #include "Log.h"
+#include "LedStatusManager.h"
 
 // ============================================================
 // Global Objects
@@ -25,6 +26,7 @@ ConfigPortal* configPortal = nullptr;
 Printer* printer = nullptr;
 WiFiManager wifiManager;
 MqttManager mqttManager;
+LedStatusManager ledStatusManager;
 
 bool portalActive = false;
 
@@ -220,6 +222,7 @@ void publishStatus() {
 
 void startConfigPortal() {
     LOG_INFO(Portal, "Starting configuration portal...");
+    ledStatusManager.setPortalMode();
 
     if (configPortal == nullptr) {
         configPortal = new ConfigPortal(configManager);
@@ -288,7 +291,12 @@ void printHelp() {
 // Command Handlers
 // ============================================================
 
-void cmdScan() { if (printer) printer->connect(); }
+void cmdScan() {
+    if (printer) {
+        ledStatusManager.setPrinterState(LedStatusManager::ConnectionState::Connecting);
+        printer->connect();
+    }
+}
 void cmdDisconnect() { if (printer) printer->disconnect(); }
 void cmdFrame() { printFrame(); }
 void cmdQrcode() { printLabel("https://zeug.makerspacebonn.de/i/1259", "Test Item", "1259", "L"); }
@@ -437,15 +445,21 @@ void setup() {
     LOG_INFOF(System, "PSRAM: %d bytes", ESP.getPsramSize());
     LOG_INFOF(System, "Log level: %s", logMgr.getLevelString());
 
+    // Load configuration from NVS (needed for LED settings)
+    configManager.load();
+
+    // Initialize RGB LED status indicators early (F009)
+    {
+        const ConfigManager::Config& cfg = configManager.getConfig();
+        ledStatusManager.begin(cfg.ledDataPin, cfg.ledBrightness, cfg.ledEnabled);
+    }
+
     // Check for hardware button reset (F005)
     if (checkBootButtonReset()) {
         LOG_INFO(System, "Starting config portal after button reset...");
         startConfigPortal();
         return;
     }
-
-    // Load configuration from NVS
-    configManager.load();
 
     // Check if configured
     if (!configManager.isConfigured()) {
@@ -467,8 +481,11 @@ void setup() {
     snprintf(mqttTopicLog, sizeof(mqttTopicLog), "labelprinter/%s/log", config.deviceName);
 
     // Connect WiFi using stored credentials
+    using CS = LedStatusManager::ConnectionState;
     wifiManager.setCredentials(config.wifiSsid, config.wifiPassword);
+    ledStatusManager.setWlanState(CS::Connecting);
     wifiManager.connect();
+    ledStatusManager.setWlanState(wifiManager.isConnected() ? CS::Connected : CS::Disconnected);
 
     // Initialize and connect MQTT (before Bluetooth - SSL needs RAM during handshake)
     mqttManager.begin(wifiManager);
@@ -482,7 +499,9 @@ void setup() {
     LOG_INFOF(MQTT, "Command topic: %s", mqttTopicCommand);
     LOG_INFOF(MQTT, "Log topic: %s", mqttTopicLog);
 
+    ledStatusManager.setMqttState(CS::Connecting);
     mqttManager.connect();
+    ledStatusManager.setMqttState(mqttManager.isConnected() ? CS::Connected : CS::Disconnected);
 
     // Setup MQTT log output (publish logs to MQTT)
     logMgr.setMqttEnabled(true, mqttTopicLog,
@@ -519,6 +538,9 @@ void setup() {
         LOG_INFOF(Printer, "Connection state changed: %s", connected ? "connected" : "disconnected");
     });
 
+    // Set printer LED to blue before blocking BT scan (F009)
+    ledStatusManager.setPrinterState(LedStatusManager::ConnectionState::Connecting);
+
     if (printer->connect()) {
         LOG_INFO(Printer, "Printer ready");
     }
@@ -551,9 +573,44 @@ void loop() {
     mqttManager.loop();
 
     // Printer auto-reconnect loop (F006)
+    NelkoP21Printer* nelkoPrinter = nullptr;
     if (printer) {
-        NelkoP21Printer* nelkoPrinter = static_cast<NelkoP21Printer*>(printer);
+        nelkoPrinter = static_cast<NelkoP21Printer*>(printer);
         nelkoPrinter->loop();
+    }
+
+    // Update RGB LED status indicators (F009)
+    {
+        using CS = LedStatusManager::ConnectionState;
+
+        // WLAN: connected, disconnected, or connecting (WiFi configured but not yet connected)
+        if (wifiManager.isConnected()) {
+            ledStatusManager.setWlanState(CS::Connected);
+        } else if (wifiManager.hasCredentials()) {
+            ledStatusManager.setWlanState(CS::Connecting);
+        } else {
+            ledStatusManager.setWlanState(CS::Disconnected);
+        }
+
+        // MQTT: connected, disconnected, or connecting (WiFi up but MQTT not yet)
+        if (mqttManager.isConnected()) {
+            ledStatusManager.setMqttState(CS::Connected);
+        } else if (wifiManager.isConnected()) {
+            ledStatusManager.setMqttState(CS::Connecting);
+        } else {
+            ledStatusManager.setMqttState(CS::Disconnected);
+        }
+
+        // Printer: connected, disconnected, or scanning (actively scanning for devices)
+        if (printer && printer->isConnected()) {
+            ledStatusManager.setPrinterState(CS::Connected);
+        } else if (nelkoPrinter && nelkoPrinter->isScanning()) {
+            ledStatusManager.setPrinterState(CS::Connecting);
+        } else {
+            ledStatusManager.setPrinterState(CS::Disconnected);
+        }
+
+        ledStatusManager.loop();
     }
 
     // Periodic status

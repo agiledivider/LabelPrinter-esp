@@ -25,7 +25,8 @@ enum class LogComponent : uint8_t {
     Printer = 3,
     Config  = 4,
     Label   = 5,
-    Portal  = 6
+    Portal  = 6,
+    LED     = 7
 };
 
 /**

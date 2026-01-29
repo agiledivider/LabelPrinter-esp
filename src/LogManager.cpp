@@ -200,6 +200,7 @@ const char* LogManager::componentToString(LogComponent component) const {
         case LogComponent::Config:  return "CFG";
         case LogComponent::Label:   return "LABEL";
         case LogComponent::Portal:  return "PORTAL";
+        case LogComponent::LED:     return "LED";
         default:                    return "???";
     }
 }

@@ -38,6 +38,10 @@ public:
         uint16_t printerReconnectMin;   // Min interval (seconds)
         uint16_t printerReconnectMax;   // Max interval (seconds)
         uint8_t printerMaxAttempts;     // Max attempts, 0 = infinite
+        // RGB LED status indicators (F009)
+        uint8_t ledDataPin;
+        uint8_t ledBrightness;
+        bool ledEnabled;
     };
 
     ConfigManager();

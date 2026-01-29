@@ -114,8 +114,28 @@ const char CONFIG_AFTER_TOPIC_STATUS[] PROGMEM = R"rawliteral(" placeholder="lab
                 <label>Result Topic</label>
                 <input type="text" name="topicResult" value=")rawliteral";
 
-// Config page footer (after result topic value to end)
-const char CONFIG_FOOTER[] PROGMEM = R"rawliteral(" placeholder="labelprinter/result">
+// After result topic value
+const char CONFIG_AFTER_TOPIC_RESULT[] PROGMEM = R"rawliteral(" placeholder="labelprinter/result">
+            </fieldset>
+            <fieldset>
+                <legend>LED Status Indicators</legend>
+                <label>Data Pin (GPIO)</label>
+                <input type="number" name="ledPin" value=")rawliteral";
+
+// After LED pin value
+const char CONFIG_AFTER_LED_PIN[] PROGMEM = R"rawliteral(" min="0" max="39">
+                <label>Brightness (0-255)</label>
+                <input type="number" name="ledBrightness" value=")rawliteral";
+
+// After LED brightness value
+const char CONFIG_AFTER_LED_BRIGHTNESS[] PROGMEM = R"rawliteral(" min="0" max="255">
+                <div class="checkbox-row">
+                    <input type="checkbox" name="ledEnabled" id="ledEnabled" )rawliteral";
+
+// Config page footer (after LED enabled checkbox checked/empty to end)
+const char CONFIG_FOOTER[] PROGMEM = R"rawliteral(>
+                    <label for="ledEnabled">Enable Status LEDs</label>
+                </div>
             </fieldset>
             <button type="submit">Save Configuration</button>
         </form>

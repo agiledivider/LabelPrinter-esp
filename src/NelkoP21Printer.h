@@ -80,6 +80,18 @@ public:
     void disableAutoReconnect();
 
     /**
+     * Checks if auto-reconnect is enabled.
+     * @return true if auto-reconnect is active
+     */
+    bool isAutoReconnectEnabled() const { return _autoReconnectEnabled; }
+
+    /**
+     * Checks if a BT scan/connect is currently in progress.
+     * @return true while scanning for devices
+     */
+    bool isScanning() const { return _scanning; }
+
+    /**
      * Process reconnection logic. Call from main loop.
      */
     void loop();
@@ -108,6 +120,7 @@ private:
     BluetoothSerial _serialBT;
     bool _initialized;
     bool _connected;
+    bool _scanning;
     int _battery;
     unsigned long _lastSeen;
 

@@ -125,6 +125,14 @@ void ConfigPortal::handleSave() {
     safeCopy(config.mqttTopicStatus, topicStatus.c_str(), sizeof(config.mqttTopicStatus));
     safeCopy(config.mqttTopicResult, topicResult.c_str(), sizeof(config.mqttTopicResult));
 
+    // LED settings (F009)
+    String ledPin = _webServer.arg("ledPin");
+    String ledBrightness = _webServer.arg("ledBrightness");
+    String ledEnabled = _webServer.arg("ledEnabled");
+    config.ledDataPin = ledPin.isEmpty() ? 13 : ledPin.toInt();
+    config.ledBrightness = ledBrightness.isEmpty() ? 50 : ledBrightness.toInt();
+    config.ledEnabled = (ledEnabled == "on" || ledEnabled == "1");
+
     // Save to NVS
     if (_configManager.save()) {
         _configSaved = true;
@@ -173,6 +181,12 @@ String ConfigPortal::getConfigPage() {
     html += config.mqttTopicStatus;
     html += FPSTR(CONFIG_AFTER_TOPIC_STATUS);
     html += config.mqttTopicResult;
+    html += FPSTR(CONFIG_AFTER_TOPIC_RESULT);
+    html += String(config.ledDataPin > 0 ? config.ledDataPin : 13);
+    html += FPSTR(CONFIG_AFTER_LED_PIN);
+    html += String(config.ledBrightness > 0 ? config.ledBrightness : 50);
+    html += FPSTR(CONFIG_AFTER_LED_BRIGHTNESS);
+    html += config.ledEnabled ? "checked" : "";
     html += FPSTR(CONFIG_FOOTER);
 
     return html;

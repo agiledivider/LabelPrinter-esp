@@ -8,6 +8,7 @@ NelkoP21Printer* NelkoP21Printer::_instance = nullptr;
 NelkoP21Printer::NelkoP21Printer()
     : _initialized(false)
     , _connected(false)
+    , _scanning(false)
     , _battery(-1)
     , _lastSeen(0)
     , _autoReconnectEnabled(false)
@@ -185,7 +186,10 @@ bool NelkoP21Printer::connect() {
             return false;
         }
     }
-    return scanAndConnect();
+    _scanning = true;
+    bool result = scanAndConnect();
+    _scanning = false;
+    return result;
 }
 
 void NelkoP21Printer::disconnect() {

@@ -28,6 +28,11 @@ void ConfigManager::setDefaults() {
     _config.printerReconnectMin = 10;    // 10 seconds initial
     _config.printerReconnectMax = 300;   // 5 minutes max
     _config.printerMaxAttempts = 0;      // Infinite retries
+
+    // Default LED settings (F009)
+    _config.ledDataPin = 13;
+    _config.ledBrightness = 50;
+    _config.ledEnabled = true;
 }
 
 void ConfigManager::generateDefaultTopics() {
@@ -93,6 +98,11 @@ bool ConfigManager::load() {
         _config.printerReconnectMax = _prefs.getUShort("prtReconMax", 300);
         _config.printerMaxAttempts = _prefs.getUChar("prtMaxAttempt", 0);
 
+        // Load LED settings (F009)
+        _config.ledDataPin = _prefs.getUChar("ledPin", 13);
+        _config.ledBrightness = _prefs.getUChar("ledBright", 50);
+        _config.ledEnabled = _prefs.getBool("ledEnabled", true);
+
         LOG_INFOF(Config, "Loaded: WiFi=%s, MQTT=%s:%d",
                       _config.wifiSsid, _config.mqttServer, _config.mqttPort);
     } else {
@@ -144,6 +154,11 @@ bool ConfigManager::save() {
     _prefs.putUShort("prtReconMin", _config.printerReconnectMin);
     _prefs.putUShort("prtReconMax", _config.printerReconnectMax);
     _prefs.putUChar("prtMaxAttempt", _config.printerMaxAttempts);
+
+    // Save LED settings (F009)
+    _prefs.putUChar("ledPin", _config.ledDataPin);
+    _prefs.putUChar("ledBright", _config.ledBrightness);
+    _prefs.putBool("ledEnabled", _config.ledEnabled);
 
     _prefs.end();
 
