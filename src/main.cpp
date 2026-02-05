@@ -481,11 +481,8 @@ void setup() {
     snprintf(mqttTopicLog, sizeof(mqttTopicLog), "labelprinter/%s/log", config.deviceName);
 
     // Connect WiFi using stored credentials
-    using CS = LedStatusManager::ConnectionState;
     wifiManager.setCredentials(config.wifiSsid, config.wifiPassword);
-    ledStatusManager.setWlanState(CS::Connecting);
     wifiManager.connect();
-    ledStatusManager.setWlanState(wifiManager.isConnected() ? CS::Connected : CS::Disconnected);
 
     // Initialize and connect MQTT (before Bluetooth - SSL needs RAM during handshake)
     mqttManager.begin(wifiManager);
@@ -499,9 +496,7 @@ void setup() {
     LOG_INFOF(MQTT, "Command topic: %s", mqttTopicCommand);
     LOG_INFOF(MQTT, "Log topic: %s", mqttTopicLog);
 
-    ledStatusManager.setMqttState(CS::Connecting);
-    mqttManager.connect();
-    ledStatusManager.setMqttState(mqttManager.isConnected() ? CS::Connected : CS::Disconnected);
+    // MQTT connects via mqttManager.loop() - no blocking wait here
 
     // Setup MQTT log output (publish logs to MQTT)
     logMgr.setMqttEnabled(true, mqttTopicLog,
@@ -538,12 +533,8 @@ void setup() {
         LOG_INFOF(Printer, "Connection state changed: %s", connected ? "connected" : "disconnected");
     });
 
-    // Set printer LED to blue before blocking BT scan (F009)
-    ledStatusManager.setPrinterState(LedStatusManager::ConnectionState::Connecting);
-
-    if (printer->connect()) {
-        LOG_INFO(Printer, "Printer ready");
-    }
+    // Printer connects via nelkoPrinter->loop() auto-reconnect (F006) - no blocking BT scan here
+    LOG_INFO(Printer, "Printer will connect via auto-reconnect");
 }
 
 void loop() {
